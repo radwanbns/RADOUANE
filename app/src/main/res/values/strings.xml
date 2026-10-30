@@ -19,6 +19,12 @@
     <string name="no_servers">No servers yet. Tap “Update servers” or paste a link from the clipboard.</string>
     <string name="no_server_selected">No server selected</string>
     <string name="updated_fmt">Updated: %1$d servers</string>
+    <string name="update_success">Update Success</string>
+    <string name="up_to_date">Servers are already up to date</string>
+    <plurals name="new_servers_fmt">
+        <item quantity="one">%1$d new server</item>
+        <item quantity="other">%1$d new servers</item>
+    </plurals>
     <string name="update_failed">Update failed: %1$s</string>
     <string name="imported_fmt">Imported %1$d servers</string>
     <string name="nothing_found">No valid links found</string>
