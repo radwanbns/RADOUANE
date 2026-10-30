@@ -19,6 +19,15 @@
     <string name="no_servers">لا توجد سيرفرات. اضغط «تحديث السيرفرات» أو الصق رابطاً من الحافظة.</string>
     <string name="no_server_selected">لم يتم اختيار سيرفر</string>
     <string name="updated_fmt">تم التحديث: %1$d سيرفر</string>
+    <string name="update_success">Update Success</string>
+    <string name="up_to_date">السيرفرات محدّثة بالفعل</string>
+    <plurals name="new_servers_fmt">
+        <item quantity="one">سيرفر جديد واحد</item>
+        <item quantity="two">سيرفران جديدان</item>
+        <item quantity="few">%1$d سيرفرات جديدة</item>
+        <item quantity="many">%1$d سيرفراً جديداً</item>
+        <item quantity="other">%1$d سيرفر جديد</item>
+    </plurals>
     <string name="update_failed">فشل التحديث: %1$s</string>
     <string name="imported_fmt">تم استيراد %1$d سيرفر</string>
     <string name="nothing_found">لم يتم العثور على روابط صالحة</string>
