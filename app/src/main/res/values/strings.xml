@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">Xray Tunnel</string>
+    <string name="update_servers">Update servers</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="connected">Connected</string>
+    <string name="connecting">Connecting…</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="import_clipboard">Import from clipboard</string>
+    <string name="paste">Paste</string>
+    <string name="servers">Servers</string>
+    <string name="delete_imported">Delete imported servers</string>
+    <string name="delete_imported_confirm">All servers you added from the clipboard will be deleted. Updated servers stay.</string>
+    <string name="delete">Delete</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="edit_server">Edit server</string>
+    <string name="locked_server">Managed by update — cannot be edited or deleted</string>
+    <string name="no_servers">No servers yet. Tap “Update servers” or paste a link from the clipboard.</string>
+    <string name="no_server_selected">No server selected</string>
+    <string name="updated_fmt">Updated: %1$d servers</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="imported_fmt">Imported %1$d servers</string>
+    <string name="nothing_found">No valid links found</string>
+    <string name="field_name">Name</string>
+    <string name="field_uuid">UUID</string>
+    <string name="field_password">Password</string>
+    <string name="field_key">Key</string>
+    <string name="field_network">Network</string>
+    <string name="field_security">Security</string>
+    <string name="field_path">Path / Service name</string>
+    <string name="telegram_title">Join our Telegram channel</string>
+    <string name="telegram_message">Follow the channel for news, new servers and updates.</string>
+    <string name="open_channel">Open channel</string>
+    <string name="later">Later</string>
+</resources>
