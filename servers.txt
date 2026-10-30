@@ -1,0 +1,2 @@
+# ضع هنا روابط السيرفرات، سطر لكل رابط (الأسطر التي لا تبدأ بـ بروتوكول معروف تُتجاهل)
+# vless://UUID@example.com:443?type=ws&security=tls&sni=example.com&path=%2Fws#My-Server
