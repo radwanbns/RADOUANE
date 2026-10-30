@@ -78,6 +78,7 @@ fun MainScreen(vm: MainViewModel) {
     val state by vm.vpnState.collectAsStateWithLifecycle()
     val updating by vm.updating.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val updateSuccess by vm.updateSuccess.collectAsStateWithLifecycle()
     val error by XrayVpnService.lastError.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     var menu by remember { mutableStateOf(false) }
@@ -144,6 +145,7 @@ fun MainScreen(vm: MainViewModel) {
             )
         }
     ) { pad ->
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize().padding(pad),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
@@ -176,6 +178,12 @@ fun MainScreen(vm: MainViewModel) {
                         onDelete = { vm.delete(s.id) })
                 }
             }
+        }
+        UpdateSuccessHost(
+            event = updateSuccess,
+            onDismiss = vm::dismissUpdateSuccess,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(pad).padding(bottom = 20.dp)
+        )
         }
     }
 
