@@ -1,13 +1,16 @@
+
 package com.xraytunnel.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -15,13 +18,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,7 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,34 +34,306 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.xraytunnel.app.data.ServerFile
+import java.io.File
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.xraytunnel.app.data.Defaults
 import com.xraytunnel.app.data.Server
+import com.xraytunnel.app.data.ServerExporter
+import com.xraytunnel.app.data.TimeCredit
 import com.xraytunnel.app.ui.*
 import com.xraytunnel.app.vpn.VpnState
 import com.xraytunnel.app.vpn.XrayVpnService
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.appopen.AppOpenAd
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
+    private var connectInterstitial: InterstitialAd? = null
+
+    // ---- App Open ad state ----
+    private var appOpenAd: AppOpenAd? = null
+    private var appOpenLoadedAt = 0L
+    private var appOpenLoading = false
+    private var adsInitialized = false
+    private var fullScreenAdShowing = false
+    private var wentToBackground = false
+
+    /** يُفعَّل قبل فتح واجهة خارجية (اختيار ملف/مشاركة/إذن VPN) كي لا تُحسب خروجاً من التطبيق. */
+    @Volatile var suppressAppOpen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { XrayTheme { MainScreen(vm) } }
+
+        MobileAds.initialize(this) {
+            runOnUiThread {
+                adsInitialized = true
+                preloadConnectInterstitial()
+                if (savedInstanceState == null && !isFinishing && !isDestroyed) {
+                    showAppOpenAd()
+                } else {
+                    loadAppOpenAd()
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        if (suppressAppOpen) {
+            // رجوع من نافذة نظام/مشاركة داخلية: لا إعلان.
+            suppressAppOpen = false
+            wentToBackground = false
+            return
+        }
+
+        // رجوع من زر Home / التطبيقات الأخيرة: إعلان فتح التطبيق في كل مرة.
+        if (wentToBackground) {
+            wentToBackground = false
+            if (adsInitialized) showAppOpenAd()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // إعلانات ملء الشاشة وتغيير الاتجاه ونوافذ النظام الداخلية لا تُحسب خروجاً.
+        if (!isChangingConfigurations && !fullScreenAdShowing && !suppressAppOpen) {
+            wentToBackground = true
+            if (adsInitialized) loadAppOpenAd() // تجهيز الإعلان قبل العودة
+        }
+    }
+
+    private fun appOpenFresh(): Boolean =
+        appOpenAd != null && System.currentTimeMillis() - appOpenLoadedAt < 4L * 60L * 60L * 1000L
+
+    private fun loadAppOpenAd(onReady: (() -> Unit)? = null) {
+        if (appOpenFresh()) {
+            onReady?.invoke()
+            return
+        }
+        if (appOpenLoading) return
+        appOpenLoading = true
+
+        AppOpenAd.load(
+            applicationContext,
+            TEST_APP_OPEN_AD_UNIT_ID,
+            AdRequest.Builder().build(),
+            object : AppOpenAd.AppOpenAdLoadCallback() {
+                override fun onAdLoaded(ad: AppOpenAd) {
+                    appOpenLoading = false
+                    appOpenAd = ad
+                    appOpenLoadedAt = System.currentTimeMillis()
+                    onReady?.invoke()
+                }
+
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    appOpenLoading = false
+                    appOpenAd = null
+                }
+            }
+        )
+    }
+
+    /** يعرض إعلان فتح التطبيق: عند التشغيل، وعند كل رجوع من الخلفية. */
+    private fun showAppOpenAd() {
+        if (isFinishing || isDestroyed || fullScreenAdShowing) return
+
+        loadAppOpenAd {
+            // قد ينتهي التحميل بعد خروج المستخدم من التطبيق مجدداً.
+            if (isFinishing || isDestroyed || fullScreenAdShowing) return@loadAppOpenAd
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@loadAppOpenAd
+
+            val ad = appOpenAd ?: return@loadAppOpenAd
+            appOpenAd = null
+
+            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                override fun onAdShowedFullScreenContent() {
+                    fullScreenAdShowing = true
+                }
+
+                override fun onAdDismissedFullScreenContent() {
+                    fullScreenAdShowing = false
+                    loadAppOpenAd()
+                }
+
+                override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                    fullScreenAdShowing = false
+                    loadAppOpenAd()
+                }
+            }
+
+            try {
+                fullScreenAdShowing = true
+                ad.show(this)
+            } catch (_: Exception) {
+                fullScreenAdShowing = false
+            }
+        }
+    }
+
+    private fun preloadConnectInterstitial() {
+        InterstitialAd.load(
+            this,
+            TEST_INTERSTITIAL_AD_UNIT_ID,
+            AdRequest.Builder().build(),
+            object : InterstitialAdLoadCallback() {
+                override fun onAdLoaded(ad: InterstitialAd) {
+                    connectInterstitial = ad
+                }
+
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    connectInterstitial = null
+                }
+            }
+        )
+    }
+
+    /** Show an interstitial after VPN reaches Connected. */
+    fun showConnectedInterstitial() {
+        if (isFinishing || isDestroyed) return
+
+        val cached = connectInterstitial
+
+        if (cached != null) {
+            connectInterstitial = null
+            showConnectedAd(cached)
+            return
+        }
+
+        InterstitialAd.load(
+            this,
+            TEST_INTERSTITIAL_AD_UNIT_ID,
+            AdRequest.Builder().build(),
+            object : InterstitialAdLoadCallback() {
+                override fun onAdLoaded(ad: InterstitialAd) {
+                    if (isFinishing || isDestroyed) {
+                        preloadConnectInterstitial()
+                        return
+                    }
+                    showConnectedAd(ad)
+                }
+
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    preloadConnectInterstitial()
+                }
+            }
+        )
+    }
+
+    private fun showConnectedAd(ad: InterstitialAd) {
+        ad.fullScreenContentCallback =
+            object : FullScreenContentCallback() {
+                override fun onAdShowedFullScreenContent() {
+                    fullScreenAdShowing = true
+                }
+
+                override fun onAdDismissedFullScreenContent() {
+                    fullScreenAdShowing = false
+                    preloadConnectInterstitial()
+                }
+
+                override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                    fullScreenAdShowing = false
+                    preloadConnectInterstitial()
+                }
+            }
+
+        try {
+            fullScreenAdShowing = true
+            ad.show(this)
+        } catch (_: Exception) {
+            fullScreenAdShowing = false
+            preloadConnectInterstitial()
+        }
+    }
+
+    fun showRewardedVideo(
+        onReward: () -> Unit,
+        onUnavailable: () -> Unit = {}
+    ) {
+        RewardedAd.load(
+            this,
+            TEST_REWARDED_AD_UNIT_ID,
+            AdRequest.Builder().build(),
+            object : RewardedAdLoadCallback() {
+                override fun onAdLoaded(ad: RewardedAd) {
+                    if (isFinishing || isDestroyed) return
+
+                    ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                        override fun onAdShowedFullScreenContent() {
+                            fullScreenAdShowing = true
+                        }
+
+                        override fun onAdDismissedFullScreenContent() {
+                            fullScreenAdShowing = false
+                        }
+
+                        override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                            fullScreenAdShowing = false
+                        }
+                    }
+
+                    fullScreenAdShowing = true
+                    ad.show(this@MainActivity) {
+                        TimeCredit.grantReward(this@MainActivity)
+                        onReward()
+                    }
+                }
+
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    if (!isFinishing && !isDestroyed) {
+                        onUnavailable()
+                    }
+                }
+            }
+        )
+    }
+
+    companion object {
+        // Official Google test ad unit IDs.
+        const val TEST_APP_OPEN_AD_UNIT_ID =
+            "ca-app-pub-3940256099942544/9257395921"
+
+        const val TEST_INTERSTITIAL_AD_UNIT_ID =
+            "ca-app-pub-3940256099942544/1033173712"
+
+        const val TEST_REWARDED_AD_UNIT_ID =
+            "ca-app-pub-3940256099942544/5224354917"
+
+        const val TEST_BANNER_AD_UNIT_ID =
+            "ca-app-pub-3940256099942544/6300978111"
     }
 }
 
@@ -73,291 +341,1073 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(vm: MainViewModel) {
     val ctx = LocalContext.current
+    val hostActivity = ctx as? MainActivity
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     val servers by vm.servers.collectAsStateWithLifecycle()
     val selectedId by vm.selectedId.collectAsStateWithLifecycle()
     val state by vm.vpnState.collectAsStateWithLifecycle()
     val updating by vm.updating.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
-    val updateSuccess by vm.updateSuccess.collectAsStateWithLifecycle()
     val error by XrayVpnService.lastError.collectAsStateWithLifecycle()
+
     val snack = remember { SnackbarHostState() }
+    val uiScope = rememberCoroutineScope()
+
     var menu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Server?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
-    var showTelegram by rememberSaveable { mutableStateOf(false) }
+    var shareFor by remember { mutableStateOf<Server?>(null) }
+    var exportAllDialog by remember { mutableStateOf(false) }
+    var newSsh by remember { mutableStateOf<Server?>(null) }
+    var showTelegram by remember { mutableStateOf(true) }
+    var updateBanner by remember { mutableStateOf<String?>(null) }
+    var remainingCredit by remember {
+        mutableLongStateOf(TimeCredit.remaining(ctx))
+    }
 
-    LaunchedEffect(message) { message?.let { snack.showSnackbar(it); vm.consumeMessage() } }
-    LaunchedEffect(error) { error?.let { snack.showSnackbar(it) } }
+    LaunchedEffect(state) {
+        while (true) {
+            remainingCredit = TimeCredit.remaining(ctx)
+            delay(1000L)
+        }
+    }
 
-    // نافذة التلغرام: تظهر مرة واحدة عند أول تشغيل، ويمكن فتحها لاحقاً من أيقونة الأعلى
+    LaunchedEffect(message) {
+        val current = message ?: return@LaunchedEffect
+
+        if (current == ctx.getString(R.string.update_success)) {
+            updateBanner = current
+            delay(3000)
+
+            if (updateBanner == current) {
+                updateBanner = null
+            }
+
+            vm.consumeMessage()
+        } else {
+            snack.showSnackbar(current)
+            vm.consumeMessage()
+        }
+    }
+
+    LaunchedEffect(error) {
+        error?.let { snack.showSnackbar(it) }
+    }
+
+    // Show one interstitial after successful VPN connection.
+    var lastObservedVpnState by remember { mutableStateOf(state) }
+
+    LaunchedEffect(state) {
+        val justConnected =
+            state == VpnState.Connected &&
+            lastObservedVpnState != VpnState.Connected
+
+        lastObservedVpnState = state
+
+        if (justConnected) {
+            hostActivity?.showConnectedInterstitial()
+        }
+    }
+
+    // Automatic subscription update.
     LaunchedEffect(Unit) {
-        if (!vm.telegramSeen()) { showTelegram = true; vm.markTelegramSeen() }
+        vm.updateIfDue()
     }
 
-    val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // Conditional check every 30 seconds.
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                vm.checkForNewServers()
+                delay(30_000L)
+            }
+        }
+    }
+
+    val notifPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {}
+
     LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT >= 33) {
+            notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
-    fun startVpn() = ContextCompat.startForegroundService(ctx, Intent(ctx, XrayVpnService::class.java))
-    fun stopVpn() = ctx.startService(Intent(ctx, XrayVpnService::class.java).setAction(XrayVpnService.ACTION_STOP))
-
-    val vpnPerm = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == Activity.RESULT_OK) startVpn()
+    fun startVpn() {
+        ContextCompat.startForegroundService(
+            ctx,
+            Intent(ctx, XrayVpnService::class.java)
+        )
     }
+
+    fun stopVpn() {
+        ctx.startService(
+            Intent(ctx, XrayVpnService::class.java)
+                .setAction(XrayVpnService.ACTION_STOP)
+        )
+    }
+
+    fun chooseServer(id: String) {
+        if (id == selectedId) return
+
+        if (state != VpnState.Disconnected) {
+            ctx.startService(
+                Intent(ctx, XrayVpnService::class.java).apply {
+                    action = XrayVpnService.ACTION_SWITCH_SERVER
+                    putExtra(XrayVpnService.EXTRA_SERVER_ID, id)
+                }
+            )
+        } else {
+            vm.select(id)
+        }
+    }
+
+    val vpnPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (it.resultCode == Activity.RESULT_OK) {
+            startVpn()
+        }
+    }
+
     fun toggle() {
-        if (state != VpnState.Disconnected) { stopVpn(); return }
-        if (servers.isEmpty()) { vm.toast(R.string.no_servers); return }
+        if (state != VpnState.Disconnected) {
+            stopVpn()
+            return
+        }
+
+        if (TimeCredit.remaining(ctx) <= 0L) {
+            Toast.makeText(
+                ctx,
+                "انتهى الوقت. شاهد إعلاناً مكافأة لإضافة ساعة كاملة.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (servers.isEmpty()) {
+            vm.toast(R.string.no_servers)
+            return
+        }
+
         val intent = VpnService.prepare(ctx)
-        if (intent != null) vpnPerm.launch(intent) else startVpn()
+
+        if (intent != null) {
+            hostActivity?.suppressAppOpen = true
+            vpnPerm.launch(intent)
+        } else {
+            startVpn()
+        }
     }
+
     fun importClipboard() {
-        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        vm.importText(cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty())
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                as ClipboardManager
+
+        vm.importText(
+            cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+        )
+    }
+
+    // Import a .xtun file (or a text file of links).
+    val importFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+
+        val text = try {
+            ctx.contentResolver.openInputStream(uri)?.use { input ->
+                input.readBytes().takeIf { it.size <= 2 * 1024 * 1024 }
+                    ?.toString(Charsets.UTF_8)
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        if (text == null) {
+            vm.toast(R.string.file_read_failed)
+        } else {
+            vm.importFileText(text)
+        }
+    }
+
+    fun importFile() {
+        hostActivity?.suppressAppOpen = true
+        importFileLauncher.launch(arrayOf("*/*"))
+    }
+
+    // Export servers as an encrypted .xtun file; locked = recipient cannot view/edit it.
+    fun exportFile(list: List<Server>, locked: Boolean) {
+        val exportable = list.filter { it.isEditable }
+
+        if (exportable.isEmpty()) {
+            vm.toast(R.string.export_nothing)
+            return
+        }
+
+        try {
+            val dir = File(ctx.cacheDir, "exports").apply {
+                mkdirs()
+                listFiles()?.forEach { it.delete() }
+            }
+            val file = File(dir, ServerFile.fileName(exportable))
+            file.writeText(ServerFile.export(exportable, locked), Charsets.UTF_8)
+
+            val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            hostActivity?.suppressAppOpen = true
+            ctx.startActivity(Intent.createChooser(send, file.name))
+        } catch (_: Exception) {
+            hostActivity?.suppressAppOpen = false
+            vm.toast(R.string.file_read_failed)
+        }
+    }
+
+    fun openLink(url: String) {
+        try {
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    fun watchReward() {
+        hostActivity?.showRewardedVideo(
+            onReward = {
+                remainingCredit = TimeCredit.remaining(ctx)
+            },
+            onUnavailable = {
+                uiScope.launch {
+                    snack.showSnackbar("الإعلان غير متوفر حالياً، حاول لاحقاً.")
+                }
+            }
+        )
     }
 
     val selected = servers.firstOrNull { it.id == selectedId }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snack) },
+        snackbarHost = {
+            SnackbarHost(snack)
+        },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    IconButton(onClick = { showTelegram = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.telegram_title),
-                            tint = MaterialTheme.colorScheme.primary)
-                    }
+                title = {
+                    Text(
+                        stringResource(R.string.app_name),
+                        fontWeight = FontWeight.Bold
+                    )
                 },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
+                ),
                 actions = {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, null) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text(stringResource(R.string.import_clipboard)) },
-                            onClick = { menu = false; importClipboard() })
-                        DropdownMenuItem(text = { Text(stringResource(R.string.delete_imported)) },
-                            onClick = { menu = false; confirmClear = true })
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Default.MoreVert, null)
+                    }
+
+                    DropdownMenu(
+                        expanded = menu,
+                        onDismissRequest = { menu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.import_clipboard))
+                            },
+                            onClick = {
+                                menu = false
+                                importClipboard()
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.delete_imported))
+                            },
+                            onClick = {
+                                menu = false
+                                confirmClear = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.telegram_channel))
+                            },
+                            onClick = {
+                                menu = false
+                                openLink(Defaults.telegramChannelUrl())
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.youtube_channel))
+                            },
+                            onClick = {
+                                menu = false
+                                openLink(Defaults.youtubeUrl())
+                            }
+                        )
                     }
                 }
             )
         }
     ) { pad ->
-        Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().padding(pad),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(pad)
         ) {
-            item {
-                Hero(state, selected?.name, updating, ::toggle, vm::updateAll)
+
+            Column(
+                Modifier.fillMaxSize()
+            ) {
+
+                // Connection header.
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+
+                    // 1. VPN CONNECT BUTTON AT THE TOP.
+                    Hero(state, selected?.name, remainingCredit, ::watchReward, ::toggle)
+
+                    // 3. SERVER LIST HEADER AND UPDATE BUTTON.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+
+                        Text(
+                            "${stringResource(R.string.servers)} (${servers.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        FilledTonalIconButton(
+                            onClick = vm::updateAll,
+                            enabled = !updating,
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            if (updating) {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    stringResource(R.string.update_servers)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+
+                        FilledTonalButton(
+                            onClick = ::importClipboard,
+                            contentPadding = PaddingValues(
+                                horizontal = 14.dp,
+                                vertical = 8.dp
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                null,
+                                Modifier.size(18.dp)
+                            )
+
+                            Spacer(Modifier.width(5.dp))
+
+                            Text(stringResource(R.string.paste))
+                        }
+                    }
+
+                    // 4. IMPORT / EXPORT FILE BUTTONS.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = ::importFile,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(stringResource(R.string.import_file), maxLines = 1)
+                        }
+
+                        FilledTonalButton(
+                            onClick = { exportAllDialog = true },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Share, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(stringResource(R.string.export_file), maxLines = 1)
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                newSsh = Server(
+                                    name = "SSH",
+                                    protocol = "ssh",
+                                    port = 443,
+                                    network = "ws",
+                                    security = "tls"
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("SSH", maxLines = 1)
+                        }
+                    }
+                }
+
+                // SERVER LIST.
+                if (servers.isEmpty()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        EmptyState()
+                    }
+                } else {
+                    LazyColumn(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 2.dp,
+                            bottom = 32.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(servers, key = { it.id }) { s ->
+
+                            ServerRow(
+                                s,
+                                s.id == selectedId,
+                                onClick = {
+                                    chooseServer(s.id)
+                                },
+                                onEdit = {
+                                    editing = s
+                                },
+                                onShare = {
+                                    shareFor = s
+                                },
+                                onDelete = {
+                                    vm.delete(s.id)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // AdMob banner.
+                AdMobBannerAd()
             }
-            item {
-                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${stringResource(R.string.servers)} (${servers.size})",
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = ::importClipboard) {
-                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.paste))
+
+            // Update success banner.
+            updateBanner?.let { text ->
+
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 14.dp)
+                        .height(54.dp),
+                    shape = RoundedCornerShape(17.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 4.dp,
+                    contentColor = Color.White
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(19.dp)
+                        )
+
+                        Text(
+                            text,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 }
             }
-            if (servers.isEmpty()) {
-                item { EmptyState() }
-            } else {
-                items(servers, key = { it.id }) { s ->
-                    ServerRow(s, s.id == selectedId,
-                        onClick = { vm.select(s.id) },
-                        onEdit = { editing = s },
-                        onDelete = { vm.delete(s.id) })
-                }
-            }
-        }
-        UpdateSuccessHost(
-            event = updateSuccess,
-            onDismiss = vm::dismissUpdateSuccess,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(pad).padding(bottom = 20.dp)
-        )
         }
     }
 
-    if (showTelegram) TelegramDialog { showTelegram = false }
+    shareFor?.let { srv ->
+        AlertDialog(
+            onDismissRequest = { shareFor = null },
+            title = { Text(stringResource(R.string.share_server)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ShareOption(
+                        stringResource(R.string.file_locked),
+                        stringResource(R.string.file_locked_hint)
+                    ) {
+                        shareFor = null
+                        exportFile(listOf(srv), locked = true)
+                    }
 
-    editing?.let { s -> EditServerDialog(s, onSave = vm::save, onClose = { editing = null }) }
+                    ShareOption(
+                        stringResource(R.string.file_unlocked),
+                        stringResource(R.string.file_unlocked_hint)
+                    ) {
+                        shareFor = null
+                        exportFile(listOf(srv), locked = false)
+                    }
 
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text(stringResource(R.string.delete_imported)) },
-        text = { Text(stringResource(R.string.delete_imported_confirm)) },
-        confirmButton = {
-            TextButton(onClick = { vm.clearImported(); confirmClear = false }) {
-                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                    ShareOption("JSON", null) {
+                        shareFor = null
+                        hostActivity?.suppressAppOpen = true
+                        shareText(ctx, ServerExporter.toJson(srv), "JSON · ${srv.name}")
+                    }
+
+                    ShareOption("URI", null) {
+                        shareFor = null
+                        val uri = ServerExporter.toUri(srv)
+
+                        if (uri != null) {
+                            hostActivity?.suppressAppOpen = true
+                            shareText(ctx, uri, "URI · ${srv.name}")
+                        } else {
+                            vm.toast(R.string.uri_export_not_supported)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { shareFor = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
-        },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
+
+    if (exportAllDialog) {
+        AlertDialog(
+            onDismissRequest = { exportAllDialog = false },
+            title = { Text(stringResource(R.string.export_file)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ShareOption(
+                        stringResource(R.string.file_locked),
+                        stringResource(R.string.file_locked_hint)
+                    ) {
+                        exportAllDialog = false
+                        exportFile(servers, locked = true)
+                    }
+
+                    ShareOption(
+                        stringResource(R.string.file_unlocked),
+                        stringResource(R.string.file_unlocked_hint)
+                    ) {
+                        exportAllDialog = false
+                        exportFile(servers, locked = false)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { exportAllDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (showTelegram) {
+        TelegramDialog {
+            showTelegram = false
+        }
+    }
+
+    newSsh?.let { s ->
+        EditServerDialog(
+            s,
+            onSave = vm::addServer,
+            onClose = { newSsh = null }
+        )
+    }
+
+    editing?.let { s ->
+        EditServerDialog(
+            s,
+            onSave = vm::save,
+            onClose = { editing = null }
+        )
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = {
+                confirmClear = false
+            },
+            title = {
+                Text(stringResource(R.string.delete_imported))
+            },
+            text = {
+                Text(stringResource(R.string.delete_imported_confirm))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.clearImported()
+                        confirmClear = false
+                    }
+                ) {
+                    Text(
+                        stringResource(R.string.delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        confirmClear = false
+                    }
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+}
+
+// ----------------------------------------------------------------
+// AdMob banner
+// ----------------------------------------------------------------
+
+@Composable
+private fun AdMobBannerAd() {
+    AndroidView(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(50.dp),
+        factory = { context ->
+            AdView(context).apply {
+                setAdSize(AdSize.BANNER)
+                adUnitId = MainActivity.TEST_BANNER_AD_UNIT_ID
+                loadAd(AdRequest.Builder().build())
+            }
+        }
     )
 }
 
-// ---------------------------------------------------------------- Hero
+// ----------------------------------------------------------------
+// Hero
+// ----------------------------------------------------------------
 
 @Composable
-private fun Hero(state: VpnState, serverName: String?, updating: Boolean, onToggle: () -> Unit, onUpdate: () -> Unit) {
+private fun Hero(
+    state: VpnState,
+    serverName: String?,
+    remainingCredit: Long,
+    onWatchReward: () -> Unit,
+    onToggle: () -> Unit
+) {
     val cs = MaterialTheme.colorScheme
+
     val statusColor by animateColorAsState(
         when (state) {
             VpnState.Connected -> ConnectedGreen
             VpnState.Connecting -> ConnectingAmber
-            else -> cs.onSurfaceVariant
-        }, label = "status"
+            else -> cs.primary
+        },
+        label = "connection-status"
     )
-    Box(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .background(Brush.verticalGradient(listOf(statusColor.copy(alpha = 0.18f), cs.surfaceVariant)))
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            ConnectButton(state, onToggle)
-            Spacer(Modifier.height(14.dp))
-            Text(
-                stringResource(when (state) {
-                    VpnState.Connected -> R.string.connected
-                    VpnState.Connecting -> R.string.connecting
-                    else -> R.string.disconnected
-                }),
-                style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = statusColor
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        statusColor.copy(alpha = 0.16f),
+                        cs.surfaceVariant
+                    )
+                )
             )
-            Spacer(Modifier.height(4.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+
+        ConnectButton(
+            state,
+            onToggle,
+            Modifier.weight(0.9f)
+        )
+
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+
+                Text(
+                    stringResource(
+                        when (state) {
+                            VpnState.Connected -> R.string.connected
+                            VpnState.Connecting -> R.string.connecting
+                            else -> R.string.disconnected
+                        }
+                    ),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = statusColor,
+                    maxLines = 1
+                )
+            }
+
             Text(
                 serverName ?: stringResource(R.string.no_server_selected),
-                style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center
+                style = MaterialTheme.typography.bodyMedium,
+                color = cs.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(18.dp))
+        }
+
+        // Compact remaining time + "+1 hour" button in the free space beside the status.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                TimeCredit.format(remainingCredit),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                color = if (remainingCredit > 0L) cs.primary else cs.error
+            )
+
             FilledTonalButton(
-                onClick = onUpdate, enabled = !updating,
-                modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp)
+                onClick = onWatchReward,
+                modifier = Modifier
+                    .height(28.dp)
+                    .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                if (updating) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Refresh, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.update_servers), fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(13.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("+1 ساعة", fontSize = 11.sp, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun ConnectButton(state: VpnState, onClick: () -> Unit) {
+private fun ConnectButton(
+    state: VpnState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val cs = MaterialTheme.colorScheme
+
     val color by animateColorAsState(
         when (state) {
             VpnState.Connected -> ConnectedGreen
             VpnState.Connecting -> ConnectingAmber
             else -> cs.primary
-        }, label = "btn"
-    )
-    val pulse = if (state == VpnState.Connecting) {
-        val t = rememberInfiniteTransition(label = "pulse")
-        t.animateFloat(0f, 1f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "p").value
-    } else 0f
-
-    Box(
-        Modifier.size(176.dp).drawBehind {
-            val base = 64.dp.toPx()
-            when (state) {
-                VpnState.Connecting -> drawCircle(color.copy(alpha = 0.35f * (1f - pulse)), radius = base + 24.dp.toPx() * pulse)
-                VpnState.Connected -> {
-                    drawCircle(color.copy(alpha = 0.18f), radius = base + 22.dp.toPx())
-                    drawCircle(color.copy(alpha = 0.12f), radius = base + 12.dp.toPx())
-                }
-                else -> drawCircle(color.copy(alpha = 0.12f), radius = base + 12.dp.toPx())
-            }
         },
-        contentAlignment = Alignment.Center
+        label = "connect-button-color"
+    )
+
+    Button(
+        onClick = onClick,
+        enabled = state != VpnState.Connecting,
+        modifier = modifier.height(54.dp),
+        shape = RoundedCornerShape(17.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = color,
+            contentColor = Color.White,
+            disabledContainerColor = color.copy(alpha = 0.75f),
+            disabledContentColor = Color.White
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 4.dp,
+            pressedElevation = 1.dp
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp)
     ) {
-        Box(
-            Modifier.size(128.dp).clip(CircleShape).background(color).clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            // أيقونة الطاقة (مرسومة يدوياً حتى لا نحتاج مكتبة أيقونات إضافية)
-            Canvas(Modifier.size(52.dp)) {
-                val sw = 6.dp.toPx()
-                val stroke = Stroke(width = sw, cap = StrokeCap.Round)
-                drawArc(
-                    OnStatus, startAngle = -60f, sweepAngle = 300f, useCenter = false, style = stroke,
-                    topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw)
-                )
-                drawLine(OnStatus, Offset(size.width / 2, sw / 2), Offset(size.width / 2, size.height * 0.5f),
-                    strokeWidth = sw, cap = StrokeCap.Round)
-            }
-        }
-    }
-}
 
-// ---------------------------------------------------------------- list
-
-@Composable
-private fun EmptyState() {
-    Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Default.Info, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
         Text(
-            stringResource(R.string.no_servers), textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = when (state) {
+                VpnState.Connected ->
+                    stringResource(R.string.disconnect).uppercase()
+
+                VpnState.Connecting ->
+                    stringResource(R.string.connecting).uppercase()
+
+                else ->
+                    stringResource(R.string.connect).uppercase()
+            },
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 1.1.sp,
+            maxLines = 1
         )
     }
 }
 
+// ----------------------------------------------------------------
+// Empty state
+// ----------------------------------------------------------------
+
 @Composable
-private fun ServerRow(s: Server, selected: Boolean, onClick: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun EmptyState() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+        Icon(
+            Icons.Default.Info,
+            null,
+            Modifier.size(40.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(10.dp))
+
+        Text(
+            stringResource(R.string.no_servers),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// ----------------------------------------------------------------
+// Server row
+// ----------------------------------------------------------------
+
+@Composable
+private fun ServerRow(
+    s: Server,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
     val cs = MaterialTheme.colorScheme
     val accent = protocolColor(s.protocol)
+
     Card(
-        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) cs.primaryContainer else cs.surfaceVariant),
-        border = if (selected) BorderStroke(1.5.dp, cs.primary) else BorderStroke(1.dp, cs.outline.copy(alpha = 0.45f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected)
+                cs.primaryContainer
+            else
+                cs.surfaceVariant
+        ),
+        border = if (selected)
+            BorderStroke(1.5.dp, cs.primary)
+        else
+            BorderStroke(1.dp, cs.outline.copy(alpha = 0.45f))
     ) {
-        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+
+        Row(
+            Modifier.padding(
+                start = 12.dp,
+                end = 4.dp,
+                top = 10.dp,
+                bottom = 10.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
             Box(
-                Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(alpha = 0.18f)),
+                Modifier
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
-            ) { Text(protocolLabel(s.protocol), color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                // لا نعرض العنوان (host) ولا المنفذ (port) إطلاقاً
-                Text(s.networkInfo(), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            ) {
+                Text(
+                    protocolLabel(s.protocol),
+                    color = accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            if (selected) Icon(Icons.Default.CheckCircle, null, tint = cs.primary, modifier = Modifier.padding(horizontal = 4.dp))
+
+            Spacer(Modifier.width(12.dp))
+
+            Column(Modifier.weight(1f)) {
+
+                Text(
+                    s.name,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // Only editable servers show host and port.
+                if (s.isEditable) {
+                    Text(
+                        "${s.address}:${s.port}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+
+                Text(
+                    s.networkInfo(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant
+                )
+            }
+
+            if (selected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    null,
+                    tint = cs.primary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
             if (s.isEditable) {
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, stringResource(R.string.edit_server), tint = cs.onSurfaceVariant) }
-                IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.delete), tint = cs.error) }
+                IconButton(onClick = onShare) {
+                    Icon(
+                        Icons.Default.Share,
+                        stringResource(R.string.share_server),
+                        tint = cs.onSurfaceVariant
+                    )
+                }
+
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Default.Edit,
+                        stringResource(R.string.edit_server),
+                        tint = cs.onSurfaceVariant
+                    )
+                }
+
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        stringResource(R.string.delete),
+                        tint = cs.error
+                    )
+                }
+            } else if (s.isDeletable) {
+                // Locked server imported from a file: details hidden, delete only.
+                Icon(
+                    Icons.Default.Lock,
+                    stringResource(R.string.locked_file_server),
+                    Modifier
+                        .padding(start = 12.dp, end = 4.dp)
+                        .size(18.dp),
+                    tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        stringResource(R.string.delete),
+                        tint = cs.error
+                    )
+                }
             } else {
-                // سيرفر قادم من التحديث: مقفل (لا تعديل ولا حذف)
-                Icon(Icons.Default.Lock, stringResource(R.string.locked_server),
-                    Modifier.padding(horizontal = 12.dp).size(18.dp), tint = cs.onSurfaceVariant.copy(alpha = 0.7f))
+                Icon(
+                    Icons.Default.Lock,
+                    stringResource(R.string.locked_server),
+                    Modifier
+                        .padding(horizontal = 12.dp)
+                        .size(18.dp),
+                    tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
         }
     }
 }
 
+// ----------------------------------------------------------------
+// Server helpers
+// ----------------------------------------------------------------
+
 private fun Server.networkInfo(): String = buildString {
+    if (protocol == "ssh") append("SSH · ")
     append(network.uppercase())
-    if (security != "none") append(" · ").append(security.uppercase())
+
+    if (security != "none") {
+        append(" · ").append(security.uppercase())
+    }
 }
 
 private fun protocolLabel(p: String) = when (p) {
     "shadowsocks" -> "SS"
     "hysteria2" -> "HY2"
+    "ssh" -> "SSH"
     "wireguard" -> "WG"
     else -> p.uppercase().take(6)
 }
@@ -369,5 +1419,46 @@ private fun protocolColor(p: String) = when (p) {
     "shadowsocks" -> Color(0xFF34D399)
     "hysteria2" -> Color(0xFFFBBF24)
     "wireguard" -> Color(0xFFFB7185)
+    "ssh" -> Color(0xFF22D3EE)
     else -> Color(0xFF94A3B8)
+}
+
+@Composable
+private fun ShareOption(title: String, hint: String?, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp)
+    ) {
+        Text(title, fontWeight = FontWeight.SemiBold)
+
+        if (hint != null) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+// ----------------------------------------------------------------
+// Share text
+// ----------------------------------------------------------------
+
+private fun shareText(
+    context: Context,
+    text: String,
+    title: String
+) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+
+    context.startActivity(
+        Intent.createChooser(send, title)
+    )
 }
