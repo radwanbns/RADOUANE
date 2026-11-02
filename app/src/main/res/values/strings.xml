@@ -18,13 +18,7 @@
     <string name="locked_server">Managed by update — cannot be edited or deleted</string>
     <string name="no_servers">No servers yet. Tap “Update servers” or paste a link from the clipboard.</string>
     <string name="no_server_selected">No server selected</string>
-    <string name="updated_fmt">Updated: %1$d servers</string>
     <string name="update_success">Update Success</string>
-    <string name="up_to_date">Servers are already up to date</string>
-    <plurals name="new_servers_fmt">
-        <item quantity="one">%1$d new server</item>
-        <item quantity="other">%1$d new servers</item>
-    </plurals>
     <string name="update_failed">Update failed: %1$s</string>
     <string name="imported_fmt">Imported %1$d servers</string>
     <string name="nothing_found">No valid links found</string>
@@ -35,8 +29,28 @@
     <string name="field_network">Network</string>
     <string name="field_security">Security</string>
     <string name="field_path">Path / Service name</string>
+    <string name="field_allow_insecure">Allow Insecure (skip TLS certificate verification)</string>
     <string name="telegram_title">Join our Telegram channel</string>
     <string name="telegram_message">Follow the channel for news, new servers and updates.</string>
     <string name="open_channel">Open channel</string>
     <string name="later">Later</string>
+    <string name="uri_export_not_supported">URI export is not supported for this protocol; share JSON instead.</string>
+    <string name="update_no_changes">No new servers found</string>
+    <string name="import_file">Import file</string>
+    <string name="export_file">Export file</string>
+    <string name="share_server">Share server</string>
+    <string name="file_locked">File — locked</string>
+    <string name="file_unlocked">File — unlocked</string>
+    <string name="file_locked_hint">Recipient can use it but cannot see or edit its details</string>
+    <string name="file_unlocked_hint">Recipient can view, edit and share it</string>
+    <string name="export_nothing">No clipboard servers to export</string>
+    <string name="locked_file_server">Locked server from a file — details hidden, can only be deleted</string>
+    <string name="file_read_failed">Could not read the file</string>
+    <string name="telegram_channel">Telegram channel</string>
+    <string name="youtube_channel">YouTube channel</string>
+    <string name="field_username">SSH username</string>
+    <string name="field_ssh_mode">Mode (tcp = direct SSH, ws = WebSocket payload)</string>
+    <string name="field_payload">Payload</string>
+    <string name="payload_hint">[crlf] [cr] [lf] [host] [host_port] [port] [path] [sni] [protocol] [ua] [ws_key] [split]</string>
+    <string name="ssh_required">Server address, valid port (1–65535) and username are required</string>
 </resources>
