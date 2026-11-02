@@ -59,7 +59,19 @@ fun TelegramDialog(onClose: () -> Unit) {
     )
 }
 
-/** تعديل السيرفر المحلي، بما فيه عنوان الخادم والمنفذ. */
+/** أنماط SSH: (TLS, Proxy, Payload). */
+private val SSH_MODES = listOf(
+    "SSH-Direct" to Triple(false, false, false),
+    "SSH-Proxy" to Triple(false, true, false),
+    "SSH-Payload" to Triple(false, false, true),
+    "SSH-Proxy-Payload" to Triple(false, true, true),
+    "SSH-TLS" to Triple(true, false, false),
+    "SSH-TLS-Proxy" to Triple(true, true, false),
+    "SSH-TLS-Payload" to Triple(true, false, true),
+    "SSH-TLS-Proxy-Payload" to Triple(true, true, true)
+)
+
+/** إضافة/تعديل سيرفر محلي (V2Ray أو SSH بكل أنماطه)، بما فيه عنوان الخادم والمنفذ. */
 @Composable
 fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Unit) {
     var name by remember { mutableStateOf(server.name) }
@@ -76,6 +88,11 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
     var insecure by remember { mutableStateOf(server.insecure) }
     var username by remember { mutableStateOf(server.username) }
     var payload by remember { mutableStateOf(server.payload) }
+    var proxyHost by remember { mutableStateOf(server.proxyHost) }
+    var proxyPort by remember { mutableStateOf(server.proxyPort.toString()) }
+    var sshTls by remember { mutableStateOf(server.security == "tls") }
+    var sshProxy by remember { mutableStateOf(server.proxyHost.isNotBlank()) }
+    var sshPayload by remember { mutableStateOf(server.network == "ws") }
     var invalid by remember { mutableStateOf(false) }
 
     val isSsh = server.protocol == "ssh"
@@ -85,6 +102,8 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
         "wireguard" -> R.string.field_key
         else -> R.string.field_password
     }
+    val currentMode = SSH_MODES.firstOrNull { it.second == Triple(sshTls, sshProxy, sshPayload) }?.first
+        ?: SSH_MODES.first().first
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -109,13 +128,24 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                 OutlinedTextField(secret, { secret = it }, label = { Text(stringResource(secretLabel)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (isSsh) {
-                    ChipRow(stringResource(R.string.field_ssh_mode), listOf("tcp", "ws"), network) { network = it }
-                    ChipRow(stringResource(R.string.field_security), listOf("none", "tls"), security) { security = it }
-                    if (security == "tls") {
+                    ChipRow(stringResource(R.string.field_ssh_mode), SSH_MODES.map { it.first }, currentMode) { picked ->
+                        SSH_MODES.firstOrNull { it.first == picked }?.second?.let { (t, pr, pl) ->
+                            sshTls = t; sshProxy = pr; sshPayload = pl
+                        }
+                    }
+                    if (sshProxy) {
+                        OutlinedTextField(proxyHost, { proxyHost = it }, label = { Text(stringResource(R.string.field_proxy_host)) },
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) },
+                            label = { Text(stringResource(R.string.field_proxy_port)) }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth())
+                    }
+                    if (sshTls) {
                         OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
-                    if (network == "ws") {
+                    if (sshPayload) {
                         OutlinedTextField(host, { host = it }, label = { Text("Host  →  [host]") },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(path, { path = it }, label = { Text("Path  →  [path]") },
@@ -125,7 +155,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             supportingText = { Text(stringResource(R.string.payload_hint)) },
                             minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth())
                     }
-                    if (security == "tls") {
+                    if (sshTls) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
@@ -133,10 +163,6 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             Checkbox(checked = insecure, onCheckedChange = { insecure = it })
                             Text(stringResource(R.string.field_allow_insecure))
                         }
-                    }
-                    if (invalid) {
-                        Text(stringResource(R.string.ssh_required), color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall)
                     }
                 } else if (streamBased) {
                     ChipRow(stringResource(R.string.field_network),
@@ -172,11 +198,19 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         Text(stringResource(R.string.field_allow_insecure))
                     }
                 }
+                if (invalid) {
+                    Text(stringResource(R.string.ssh_required), color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
             Button(onClick = {
-                if (isSsh && (address.isBlank() || username.isBlank() || port.toIntOrNull() !in 1..65535)) {
+                val badProxy = isSsh && sshProxy &&
+                    (proxyHost.isBlank() || proxyPort.toIntOrNull() !in 1..65535)
+                if (address.isBlank() || port.toIntOrNull() !in 1..65535 ||
+                    (isSsh && username.isBlank()) || badProxy
+                ) {
                     invalid = true
                     return@Button
                 }
@@ -184,9 +218,14 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     username = username.trim(), payload = payload,
                     name = name.trim().ifBlank { server.name },
                     address = address.trim(), port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
-                    secret = if (isSsh) secret else secret.trim(), network = network, security = security, host = host.trim(),
+                    secret = if (isSsh) secret else secret.trim(),
+                    network = if (isSsh) (if (sshPayload) "ws" else "tcp") else network,
+                    security = if (isSsh) (if (sshTls) "tls" else "none") else security,
+                    host = host.trim(),
                     sni = sni.trim(), path = path.trim(), fingerprint = fp.trim(), flow = flow.trim(),
-                    insecure = insecure
+                    insecure = insecure,
+                    proxyHost = if (isSsh && sshProxy) proxyHost.trim() else "",
+                    proxyPort = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
                 ))
                 onClose()
             }) { Text(stringResource(R.string.save)) }
