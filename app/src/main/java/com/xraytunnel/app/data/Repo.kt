@@ -24,30 +24,65 @@ class Repo private constructor(ctx: Context) {
     /** إضافة سيرفرات من الحافظة (قابلة للتعديل والحذف). */
     fun addServers(list: List<Server>) = saveServers(_servers.value + list.map { it.copy(subId = "") })
 
-    /** استبدال سيرفرات التحديث بالقائمة الجديدة، دون المساس بسيرفرات الحافظة. */
-    fun replaceUpdated(list: List<Server>) {
-        val oldSelected = selectedServer()?.takeIf { !it.isEditable }
-        val fresh = list.map { it.copy(subId = Defaults.UPDATE_SUB_ID) }
-        saveServers(fresh + _servers.value.filter { it.isEditable })
-        // نحافظ على السيرفر المختار بعد التحديث (المعرّفات تتغير مع كل تحديث)
-        if (oldSelected != null) {
-            fresh.firstOrNull { it.name == oldSelected.name && it.address == oldSelected.address && it.port == oldSelected.port }
-                ?.let { select(it.id) }
+    /**
+     * Replace the GitHub-managed list with the latest valid subscription.
+     * Clipboard servers are preserved exactly. Existing IDs are retained by
+     * exact configuration first, then by protocol + server name when a config
+     * was edited remotely, so the selected server does not unnecessarily jump.
+     * Returns the number of added, removed, or changed managed servers.
+     */
+    fun syncUpdated(list: List<Server>): Int {
+        if (list.isEmpty()) return 0 // Never interpret an empty/invalid fetch as mass deletion.
+
+        val current = _servers.value
+        val oldManaged = current.filter { it.isManaged }
+        val clipboard = current.filterNot { it.isManaged }
+        val incoming = list.distinctBy { it.identityKey() }
+
+        val exactMatches = oldManaged.associateBy { it.identityKey() }
+        val oldByLabel = oldManaged.groupBy { stableLabelKey(it) }
+        val usedOldIds = mutableSetOf<String>()
+        var changes = 0
+
+        val latestManaged = incoming.map { server ->
+            val exact = exactMatches[server.identityKey()]?.takeIf { it.id !in usedOldIds }
+            val previous = exact ?: oldByLabel[stableLabelKey(server)]
+                ?.firstOrNull { it.id !in usedOldIds }
+
+            if (previous == null) {
+                changes++ // Added
+                server.copy(subId = Defaults.UPDATE_SUB_ID)
+            } else {
+                usedOldIds += previous.id
+                val updated = server.copy(id = previous.id, subId = Defaults.UPDATE_SUB_ID)
+                if (previous != updated) changes++ // Configuration or display name changed
+                updated
+            }
         }
+
+        changes += oldManaged.count { it.id !in usedOldIds } // Removed from GitHub
+        if (changes == 0) return 0
+
+        // Keep clipboard servers untouched and replace only subscription-managed servers.
+        saveServers(latestManaged + clipboard)
+        return changes
     }
+
+    private fun stableLabelKey(server: Server): String =
+        server.protocol.trim().lowercase() + "\u001f" + server.name.trim().lowercase()
 
     /** تعديل سيرفر من الحافظة فقط. */
     fun updateServer(updated: Server) {
         val cur = _servers.value.firstOrNull { it.id == updated.id } ?: return
         if (!cur.isEditable) return
-        saveServers(_servers.value.map { if (it.id == updated.id) updated.copy(subId = "") else it })
+        saveServers(_servers.value.map { if (it.id == updated.id) updated.copy(subId = "", locked = false) else it })
     }
 
     /** حذف سيرفر من الحافظة فقط. */
-    fun delete(id: String) = saveServers(_servers.value.filterNot { it.id == id && it.isEditable })
+    fun delete(id: String) = saveServers(_servers.value.filterNot { it.id == id && it.isDeletable })
 
     /** حذف كل سيرفرات الحافظة (سيرفرات التحديث تبقى). */
-    fun clearImported() = saveServers(_servers.value.filterNot { it.isEditable })
+    fun clearImported() = saveServers(_servers.value.filterNot { it.isDeletable })
 
     private fun saveServers(list: List<Server>) {
         _servers.value = list

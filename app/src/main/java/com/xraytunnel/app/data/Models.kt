@@ -30,10 +30,27 @@ data class Server(
     val obfsPassword: String = "",
     val localAddress: String = "", // WireGuard
     val reserved: String = "",     // WireGuard "1,2,3"
-    val mtu: Int = 1280
+    val mtu: Int = 1280,
+    val username: String = "",     // SSH: اسم المستخدم (كلمة المرور في secret)
+    val payload: String = "",      // SSH WS: بايلود HTTP مع [crlf] [host] [split] ...
+    val locked: Boolean = false    // سيرفر مستورد من ملف مقفل: مخفي، لا تعديل ولا مشاركة
 ) {
     /** سيرفرات الحافظة فقط (subId فارغ) قابلة للتعديل والحذف؛ سيرفرات التحديث مقفلة. */
-    val isEditable: Boolean get() = subId.isBlank()
+    val isEditable: Boolean get() = subId.isBlank() && !locked
+
+    /** سيرفرات التحديث (GitHub) فقط. */
+    val isManaged: Boolean get() = subId.isNotBlank()
+
+    /** يمكن حذفه: سيرفرات الحافظة والملفات (المقفلة وغير المقفلة). */
+    val isDeletable: Boolean get() = subId.isBlank()
+
+    /** Stable identity for duplicate detection across repeated subscription checks. */
+    fun identityKey(): String = listOf(
+        protocol, address, port.toString(), secret, method, flow, alterId.toString(),
+        network, headerType, host, path, security, sni, fingerprint, alpn,
+        insecure.toString(), publicKey, shortId, spiderX, obfsPassword,
+        localAddress, reserved, mtu.toString(), username, payload
+    ).joinToString("\u001f")
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("subId", subId); put("name", name); put("protocol", protocol)
@@ -44,6 +61,8 @@ data class Server(
         put("alpn", alpn); put("insecure", insecure); put("publicKey", publicKey)
         put("shortId", shortId); put("spiderX", spiderX); put("obfsPassword", obfsPassword)
         put("localAddress", localAddress); put("reserved", reserved); put("mtu", mtu)
+        put("username", username); put("payload", payload)
+        put("locked", locked)
     }
 
     companion object {
@@ -60,7 +79,8 @@ data class Server(
             publicKey = o.optString("publicKey"), shortId = o.optString("shortId"),
             spiderX = o.optString("spiderX"), obfsPassword = o.optString("obfsPassword"),
             localAddress = o.optString("localAddress"), reserved = o.optString("reserved"),
-            mtu = o.optInt("mtu", 1280)
+            mtu = o.optInt("mtu", 1280),
+            username = o.optString("username"), payload = o.optString("payload"), locked = o.optBoolean("locked", false)
         )
     }
 }

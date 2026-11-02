@@ -17,6 +17,7 @@ object LinkParser {
                 link.startsWith("ss://") -> shadowsocks(link)
                 link.startsWith("socks://") || link.startsWith("socks5://") -> socks(link)
                 link.startsWith("hysteria2://") || link.startsWith("hy2://") -> uriBased(link, "hysteria2")
+                link.startsWith("ssh://") -> ssh(link)
                 link.startsWith("wireguard://") || link.startsWith("wg://") -> uriBased(link, "wireguard")
                 else -> null
             }
@@ -47,7 +48,8 @@ object LinkParser {
             security = if (tls == "tls") "tls" else "none",
             sni = j.optString("sni"),
             alpn = j.optString("alpn"),
-            fingerprint = j.optString("fp")
+            fingerprint = j.optString("fp"),
+            insecure = j.optBoolean("allowInsecure", j.optBoolean("insecure", false))
         )
     }
 
@@ -87,6 +89,38 @@ object LinkParser {
             localAddress = q("address"),
             reserved = q("reserved"),
             mtu = q("mtu").toIntOrNull() ?: 1280
+        )
+    }
+
+    /**
+     * ssh://user:pass@host:port?type=ws|tcp&security=tls|none&sni=..&host=..&path=..&payload=..&allowInsecure=1#Name
+     * أي منفذ مقبول (1..65535). type=tcp: SSH مباشر، type=ws: WebSocket + بايلود.
+     */
+    private fun ssh(link: String): Server? {
+        val u = Uri.parse(link)
+        val host = u.host ?: return null
+        val port = if (u.port in 1..65535) u.port else 22
+        val ui = u.encodedUserInfo ?: ""
+        val user = Uri.decode(ui.substringBefore(":"))
+        val pass = Uri.decode(ui.substringAfter(":", ""))
+        if (user.isBlank()) return null
+        fun q(k: String) = u.getQueryParameter(k) ?: ""
+        val net = when (q("type").lowercase()) { "ws", "websocket" -> "ws"; else -> "tcp" }
+        val tls = q("security").lowercase() == "tls" || q("tls") == "1"
+        return Server(
+            name = u.fragment?.takeIf { it.isNotBlank() } ?: "SSH",
+            protocol = "ssh",
+            address = host,
+            port = port,
+            username = user,
+            secret = pass,
+            network = net,
+            security = if (tls) "tls" else "none",
+            sni = q("sni"),
+            host = q("host"),
+            path = q("path"),
+            payload = q("payload"),
+            insecure = q("allowInsecure") == "1" || q("insecure") == "1"
         )
     }
 
