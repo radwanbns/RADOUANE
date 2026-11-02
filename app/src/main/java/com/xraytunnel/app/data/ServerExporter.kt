@@ -46,6 +46,7 @@ object ServerExporter {
                 val q = query(
                     "type" to s.network, "security" to s.security, "sni" to s.sni,
                     "host" to s.host, "path" to s.path, "payload" to s.payload,
+                    "proxy" to if (s.proxyHost.isNotBlank()) "${s.proxyHost}:${s.proxyPort}" else "",
                     "allowInsecure" to if (s.insecure) "1" else ""
                 )
                 "ssh://${Uri.encode(s.username)}:${Uri.encode(s.secret)}@$host:${s.port}" +
