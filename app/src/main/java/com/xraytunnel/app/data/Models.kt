@@ -33,6 +33,8 @@ data class Server(
     val mtu: Int = 1280,
     val username: String = "",     // SSH: اسم المستخدم (كلمة المرور في secret)
     val payload: String = "",      // SSH WS: بايلود HTTP مع [crlf] [host] [split] ...
+    val proxyHost: String = "",    // SSH: HTTP proxy اختياري (SSH-Proxy)
+    val proxyPort: Int = 8080,
     val locked: Boolean = false    // سيرفر مستورد من ملف مقفل: مخفي، لا تعديل ولا مشاركة
 ) {
     /** سيرفرات الحافظة فقط (subId فارغ) قابلة للتعديل والحذف؛ سيرفرات التحديث مقفلة. */
@@ -49,7 +51,7 @@ data class Server(
         protocol, address, port.toString(), secret, method, flow, alterId.toString(),
         network, headerType, host, path, security, sni, fingerprint, alpn,
         insecure.toString(), publicKey, shortId, spiderX, obfsPassword,
-        localAddress, reserved, mtu.toString(), username, payload
+        localAddress, reserved, mtu.toString(), username, payload, proxyHost, proxyPort.toString()
     ).joinToString("\u001f")
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -62,6 +64,7 @@ data class Server(
         put("shortId", shortId); put("spiderX", spiderX); put("obfsPassword", obfsPassword)
         put("localAddress", localAddress); put("reserved", reserved); put("mtu", mtu)
         put("username", username); put("payload", payload)
+        put("proxyHost", proxyHost); put("proxyPort", proxyPort)
         put("locked", locked)
     }
 
@@ -80,7 +83,8 @@ data class Server(
             spiderX = o.optString("spiderX"), obfsPassword = o.optString("obfsPassword"),
             localAddress = o.optString("localAddress"), reserved = o.optString("reserved"),
             mtu = o.optInt("mtu", 1280),
-            username = o.optString("username"), payload = o.optString("payload"), locked = o.optBoolean("locked", false)
+            username = o.optString("username"), payload = o.optString("payload"),
+            proxyHost = o.optString("proxyHost"), proxyPort = o.optInt("proxyPort", 8080), locked = o.optBoolean("locked", false)
         )
     }
 }
