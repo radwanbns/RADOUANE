@@ -49,8 +49,11 @@
     <string name="telegram_channel">قناة تلغرام</string>
     <string name="youtube_channel">قناة يوتيوب</string>
     <string name="field_username">اسم مستخدم SSH</string>
-    <string name="field_ssh_mode">النمط (tcp = SSH مباشر، ws = WebSocket مع بايلود)</string>
+    <string name="field_ssh_mode">نمط SSH</string>
+    <string name="field_proxy_host">بروكسي HTTP (العنوان)</string>
+    <string name="field_proxy_port">منفذ البروكسي</string>
+    <string name="add_server">إضافة</string>
     <string name="field_payload">البايلود</string>
     <string name="payload_hint">[crlf] [cr] [lf] [host] [host_port] [port] [path] [sni] [protocol] [ua] [ws_key] [split]</string>
-    <string name="ssh_required">عنوان السيرفر ومنفذ صالح (1–65535) واسم المستخدم مطلوبة</string>
+    <string name="ssh_required">عنوان السيرفر ومنفذ صالح (1–65535) مطلوبان (مع اسم المستخدم في SSH، وعنوان ومنفذ البروكسي في أنماط Proxy)</string>
 </resources>
