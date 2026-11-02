@@ -7,10 +7,19 @@ import org.json.JSONObject
 /** يبني ملف إعدادات Xray JSON من السيرفر المختار. */
 object ConfigBuilder {
 
-    fun build(s: Server): String {
+    /**
+     * V2Ray: يخرج الترافيك مباشرة عبر مخرج البروتوكول.
+     * SSH: يخرج عبر SOCKS محلي (SshTunnel) بمستخدم/كلمة سر عشوائيين؛ ولأن SSH لا ينقل UDP
+     * يُمرَّر DNS عبر مخرج dns الداخلي (DoH عبر النفق) ويُحجب باقي UDP ليعود التطبيق إلى TCP.
+     */
+    fun build(s: Server, socksPort: Int = 0, socksUser: String = "", socksPass: String = ""): String {
+        val ssh = s.protocol == "ssh"
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "warning"))
-        root.put("dns", JSONObject().put("servers", JSONArray(listOf("https+local://1.1.1.1/dns-query", "localhost"))))
+        root.put("dns", JSONObject().put("servers", JSONArray(
+            if (ssh) listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query")
+            else listOf("https+local://1.1.1.1/dns-query", "localhost")
+        )))
 
         root.put("inbounds", JSONArray().put(
             JSONObject()
@@ -23,19 +32,31 @@ object ConfigBuilder {
         ))
 
         root.put("outbounds", JSONArray()
-            .put(proxyOutbound(s))
+            .put(if (ssh) sshOutbound(socksPort, socksUser, socksPass) else proxyOutbound(s))
             .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
-            .put(JSONObject().put("tag", "block").put("protocol", "blackhole")))
+            .put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
+            .apply { if (ssh) put(JSONObject().put("tag", "dns-out").put("protocol", "dns")) })
 
         val privateIps = listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
             "169.254.0.0/16", "fc00::/7", "fe80::/10")
+        val rules = JSONArray().put(
+            JSONObject().put("type", "field").put("ip", JSONArray(privateIps)).put("outboundTag", "direct")
+        )
+        if (ssh) {
+            rules.put(JSONObject().put("type", "field").put("port", "53").put("outboundTag", "dns-out"))
+            rules.put(JSONObject().put("type", "field").put("network", "udp").put("outboundTag", "block"))
+        }
         root.put("routing", JSONObject()
             .put("domainStrategy", "AsIs")
-            .put("rules", JSONArray().put(
-                JSONObject().put("type", "field").put("ip", JSONArray(privateIps)).put("outboundTag", "direct")
-            )))
+            .put("rules", rules))
         return root.toString()
     }
+
+    private fun sshOutbound(port: Int, user: String, pass: String): JSONObject =
+        JSONObject().put("tag", "proxy").put("protocol", "socks").put("settings",
+            JSONObject().put("servers", JSONArray().put(
+                JSONObject().put("address", "127.0.0.1").put("port", port).put("users", JSONArray().put(
+                    JSONObject().put("user", user).put("pass", pass))))))
 
     private fun proxyOutbound(s: Server): JSONObject {
         val o = JSONObject().put("tag", "proxy")
