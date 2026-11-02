@@ -12,13 +12,15 @@ android {
         applicationId = "com.xraytunnel.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 4
+        versionName = "1.3.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // استبدله بمفتاح توقيع خاص بك عند النشر
             signingConfig = signingConfigs.getByName("debug")
         }
@@ -46,4 +48,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Google AdMob SDK: App Open, Interstitial, Rewarded and Banner ads.
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+    // SSH client (fork مُحدَّث من JSch) لنفق SSH / SSH-WebSocket.
+    implementation("com.github.mwiede:jsch:0.2.20")
 }
