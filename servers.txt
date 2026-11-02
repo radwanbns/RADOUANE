@@ -1,2 +1,25 @@
-# ضع هنا روابط السيرفرات، سطر لكل رابط (الأسطر التي لا تبدأ بـ بروتوكول معروف تُتجاهل)
-# vless://UUID@example.com:443?type=ws&security=tls&sni=example.com&path=%2Fws#My-Server
+# ملف السيرفرات على GitHub — سطر لكل رابط، ويمكن خلط V2Ray و SSH في نفس الملف.
+# الأسطر التي لا تبدأ ببروتوكول معروف (مثل هذه) تُتجاهل.
+#
+# ---- V2Ray ----
+# vless://UUID@example.com:443?type=ws&security=tls&sni=example.com&path=%2Fws#My-V2Ray
+#
+# ---- SSH ----
+# ssh://USER:PASS@host:PORT?type=tcp|ws&security=none|tls&sni=..&host=..&path=..&payload=..&allowInsecure=1#الاسم
+#   type=tcp   SSH مباشر            | type=ws  WebSocket + بايلود
+#   security=tls  يضيف طبقة TLS مع sni (يعمل مع tcp و ws)
+#   payload    مشفّر URL (استعمل %5Bcrlf%5D أو [crlf]) — يدعم [host] [port] [host_port] [path] [sni] [crlf] [split]
+#
+# SSH مباشر:
+# ssh://user:pass@ssh.example.com:22#SSH-Direct
+# SSH + TLS (SNI):
+# ssh://user:pass@ssh.example.com:443?type=tcp&security=tls&sni=cdn.example.com#SSH-TLS
+# SSH + WebSocket + بايلود:
+# ssh://user:pass@ssh.example.com:80?type=ws&host=cdn.example.com&path=%2Fws&payload=GET%20%2Fws%20HTTP%2F1.1%5Bcrlf%5DHost%3A%20%5Bhost%5D%5Bcrlf%5DUpgrade%3A%20websocket%5Bcrlf%5DConnection%3A%20Upgrade%5Bcrlf%5D%5Bcrlf%5D#SSH-WS
+# SSH + WebSocket + TLS + بايلود:
+# ssh://user:pass@ssh.example.com:443?type=ws&security=tls&sni=cdn.example.com&host=cdn.example.com&path=%2Fws&payload=GET%20%2Fws%20HTTP%2F1.1%5Bcrlf%5DHost%3A%20%5Bhost%5D%5Bcrlf%5DUpgrade%3A%20websocket%5Bcrlf%5DConnection%3A%20Upgrade%5Bcrlf%5D%5Bcrlf%5D#SSH-WS-TLS
+#
+# بدائل: ملف JSON بدل الروابط (مصفوفة، أو {"servers":[...]}) بنفس حقول «مشاركة JSON»، مفيد للبايلود الطويل:
+# [{"protocol":"ssh","name":"SSH-WS-TLS","address":"ssh.example.com","port":443,"username":"user","secret":"pass",
+#   "network":"ws","security":"tls","sni":"cdn.example.com","host":"cdn.example.com","path":"/ws",
+#   "payload":"GET [path] [protocol][crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf]"}]

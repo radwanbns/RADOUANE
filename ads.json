@@ -1,0 +1,7 @@
+{
+  "ads_enabled": true,
+  "banner_enabled": true,
+  "interstitial_enabled": true,
+  "rewarded_enabled": true,
+  "reward_minutes": 60
+}
