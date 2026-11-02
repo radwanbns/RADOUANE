@@ -272,7 +272,7 @@ class SshTunnel(
                 root is UnknownHostException ->
                     if (hide) "تعذر الوصول إلى عنوان السيرفر." else "تعذر الوصول إلى عنوان السيرفر: ${server.address}"
                 root is ConnectException || all.contains("refused", true) ->
-                    if (hide) "رفض السيرفر الاتصال." else "رفض السيرفر الاتصال على المنفذ ${server.port}."
+                    if (server.proxyHost.isNotBlank()) "رفض البروكسي الاتصال. تحقق من عنوان ومنفذ البروكسي." else if (hide) "رفض السيرفر الاتصال." else "رفض السيرفر الاتصال على المنفذ ${server.port}."
                 root is SocketTimeoutException || all.contains("timeout", true) || all.contains("timed out", true) ->
                     "انتهت مهلة الاتصال بسيرفر SSH. تحقق من العنوان والمنفذ والبايلود."
                 root is SSLException ->
@@ -314,25 +314,48 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
         timeout: Int
     ) {
         val t = if (timeout > 0) timeout else 15_000
+        val useProxy = s.proxyHost.isNotBlank()
+        val payloadOn = s.network == "ws"
+        val tlsOn = s.security == "tls"
+
         val raw = Socket()
         socket = raw
         raw.tcpNoDelay = true
-        raw.connect(InetSocketAddress(s.address, s.port), t)
+        raw.connect(
+            if (useProxy) InetSocketAddress(s.proxyHost, s.proxyPort) else InetSocketAddress(s.address, s.port),
+            t
+        )
         raw.soTimeout = t
 
         var sock: Socket = raw
-        if (s.security == "tls") {
-            sock = tls(raw)
-            socket = sock
-        }
+        var input: InputStream = raw.getInputStream()
+        var output: OutputStream = raw.getOutputStream()
 
-        var input: InputStream = sock.getInputStream()
-        val output: OutputStream = sock.getOutputStream()
-
-        if (s.network == "ws") {
-            val pin = PushbackInputStream(input, 8192)
-            sendPayload(output)
-            readHandshake(pin)
+        if (useProxy) {
+            // TCP → HTTP proxy → (بايلود | CONNECT) → [TLS] → SSH
+            val pin = PushbackInputStream(raw.getInputStream(), 8192)
+            sendPayload(output, forProxy = true)
+            readHandshake(pin, allowSshBanner = !tlsOn)
+            if (tlsOn) {
+                sock = tls(raw)
+                socket = sock
+                input = sock.getInputStream()
+                output = sock.getOutputStream()
+            } else {
+                input = pin
+            }
+        } else {
+            // TCP → [TLS] → [بايلود] → SSH
+            if (tlsOn) {
+                sock = tls(raw)
+                socket = sock
+                output = sock.getOutputStream()
+            }
+            val pin = PushbackInputStream(sock.getInputStream(), 8192)
+            if (payloadOn) {
+                sendPayload(output, forProxy = false)
+                readHandshake(pin, allowSshBanner = true)
+            }
             input = pin
         }
 
@@ -375,8 +398,8 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
 
     // ---------------------------------------------------------------- payload
 
-    private fun sendPayload(o: OutputStream) {
-        val parts = Regex("\\[split\\]", RegexOption.IGNORE_CASE).split(buildPayload())
+    private fun sendPayload(o: OutputStream, forProxy: Boolean) {
+        val parts = Regex("\\[split\\]", RegexOption.IGNORE_CASE).split(buildPayload(forProxy))
         parts.forEachIndexed { i, part ->
             if (part.isNotEmpty()) {
                 o.write(part.toByteArray(Charsets.UTF_8))
@@ -389,11 +412,14 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
     private fun tag(text: String, name: String, value: String): String =
         text.replace(Regex(Regex.escape(name), RegexOption.IGNORE_CASE)) { value }
 
-    private fun buildPayload(): String {
+    private fun buildPayload(forProxy: Boolean): String {
         val hostName = s.host.ifBlank { s.address }
-        val hostPort = if (hostName.contains(":")) hostName else "$hostName:${s.port}"
+        // [host_port] = عنوان سيرفر SSH الحقيقي (يستعمل في CONNECT عبر البروكسي).
+        val hostPort = if (s.address.contains(":")) "[${s.address}]:${s.port}" else "${s.address}:${s.port}"
 
-        var p = s.payload.ifBlank { DEFAULT_PAYLOAD }
+        // بروكسي بلا بايلود → CONNECT قياسي؛ وإلا بايلود WebSocket القياسي.
+        val custom = if (s.network == "ws") s.payload else ""
+        var p = custom.ifBlank { if (forProxy) DEFAULT_CONNECT else DEFAULT_PAYLOAD }
         // أسطر حقيقية → CRLF، ثم تسلسلات \r\n المكتوبة نصاً.
         p = p.replace("\r\n", "\n").replace("\n", "\r\n")
         p = p.replace("\\r\\n", "\r\n").replace("\\r", "\r").replace("\\n", "\n")
@@ -422,7 +448,7 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
      * يقرأ ترويسة رد HTTP بايتاً بايتاً (دون قراءة زائدة من بايتات SSH) ويقبل 1xx/2xx.
      * الرد المكرر (200 ثم 101) يتخطاه JSch لأنه يتجاهل أي أسطر قبل "SSH-".
      */
-    private fun readHandshake(pin: PushbackInputStream) {
+    private fun readHandshake(pin: PushbackInputStream, allowSshBanner: Boolean) {
         val sb = StringBuilder()
         while (sb.length < 16_384) {
             val b = pin.read()
@@ -430,7 +456,7 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
             sb.append(b.toChar())
 
             // السيرفر يرد مباشرة ببروتوكول SSH بلا HTTP: أعد البايتات ودع JSch يكمل.
-            if (sb.length == 4 && sb.toString() == "SSH-") {
+            if (allowSshBanner && sb.length == 4 && sb.toString() == "SSH-") {
                 pin.unread(sb.toString().toByteArray(Charsets.ISO_8859_1))
                 return
             }
@@ -452,6 +478,9 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
     companion object {
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+
+        private const val DEFAULT_CONNECT =
+            "CONNECT [host_port] [protocol][crlf]Host: [host_port][crlf]Proxy-Connection: Keep-Alive[crlf][crlf]"
 
         private const val DEFAULT_PAYLOAD =
             "GET [path] [protocol][crlf]Host: [host][crlf]Upgrade: websocket[crlf]" +
