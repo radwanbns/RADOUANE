@@ -93,7 +93,7 @@ object LinkParser {
     }
 
     /**
-     * ssh://user:pass@host:port?type=ws|tcp&security=tls|none&sni=..&host=..&path=..&payload=..&allowInsecure=1#Name
+     * ssh://user:pass@host:port?type=ws|tcp&proxy=host:port&security=tls|none&sni=..&host=..&path=..&payload=..&allowInsecure=1#Name
      * أي منفذ مقبول (1..65535). type=tcp: SSH مباشر، type=ws: WebSocket + بايلود.
      */
     private fun ssh(link: String): Server? {
@@ -105,7 +105,14 @@ object LinkParser {
         val pass = Uri.decode(ui.substringAfter(":", ""))
         if (user.isBlank()) return null
         fun q(k: String) = u.getQueryParameter(k) ?: ""
-        val net = when (q("type").lowercase()) { "ws", "websocket" -> "ws"; else -> "tcp" }
+        val net = when {
+            q("type").lowercase() in listOf("ws", "websocket", "payload") -> "ws"
+            q("payload").isNotBlank() -> "ws"
+            else -> "tcp"
+        }
+        val proxy = q("proxy").trim()
+        val proxyHost = if (proxy.contains(":")) proxy.substringBeforeLast(":") else proxy
+        val proxyPort = if (proxy.contains(":")) proxy.substringAfterLast(":").toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080 else 8080
         val tls = q("security").lowercase() == "tls" || q("tls") == "1"
         return Server(
             name = u.fragment?.takeIf { it.isNotBlank() } ?: "SSH",
@@ -120,6 +127,8 @@ object LinkParser {
             host = q("host"),
             path = q("path"),
             payload = q("payload"),
+            proxyHost = proxyHost,
+            proxyPort = proxyPort,
             insecure = q("allowInsecure") == "1" || q("insecure") == "1"
         )
     }
