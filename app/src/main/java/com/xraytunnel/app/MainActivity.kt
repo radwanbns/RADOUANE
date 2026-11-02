@@ -359,7 +359,8 @@ fun MainScreen(vm: MainViewModel) {
     var confirmClear by remember { mutableStateOf(false) }
     var shareFor by remember { mutableStateOf<Server?>(null) }
     var exportAllDialog by remember { mutableStateOf(false) }
-    var newSsh by remember { mutableStateOf<Server?>(null) }
+    var newServer by remember { mutableStateOf<Server?>(null) }
+    var addMenu by remember { mutableStateOf(false) }
     var showTelegram by remember { mutableStateOf(true) }
     var updateBanner by remember { mutableStateOf<String?>(null) }
     var remainingCredit by remember {
@@ -723,23 +724,103 @@ fun MainScreen(vm: MainViewModel) {
 
                         Spacer(Modifier.width(8.dp))
 
-                        FilledTonalButton(
-                            onClick = ::importClipboard,
-                            contentPadding = PaddingValues(
-                                horizontal = 14.dp,
-                                vertical = 8.dp
-                            ),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Add,
-                                null,
-                                Modifier.size(18.dp)
-                            )
+                        Box {
+                            FilledTonalButton(
+                                onClick = { addMenu = true },
+                                contentPadding = PaddingValues(
+                                    horizontal = 14.dp,
+                                    vertical = 8.dp
+                                ),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    null,
+                                    Modifier.size(18.dp)
+                                )
 
-                            Spacer(Modifier.width(5.dp))
+                                Spacer(Modifier.width(5.dp))
 
-                            Text(stringResource(R.string.paste))
+                                Text(stringResource(R.string.add_server))
+                            }
+
+                            DropdownMenu(
+                                expanded = addMenu,
+                                onDismissRequest = { addMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.paste)) },
+                                    onClick = {
+                                        addMenu = false
+                                        importClipboard()
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.import_file)) },
+                                    onClick = {
+                                        addMenu = false
+                                        importFile()
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("SSH") },
+                                    onClick = {
+                                        addMenu = false
+                                        newServer = Server(
+                                            name = "SSH",
+                                            protocol = "ssh",
+                                            port = 443,
+                                            network = "ws",
+                                            security = "tls"
+                                        )
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("VLESS") },
+                                    onClick = {
+                                        addMenu = false
+                                        newServer = Server(
+                                            name = "VLESS",
+                                            protocol = "vless",
+                                            port = 443,
+                                            network = "tcp",
+                                            security = "tls"
+                                        )
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("VMess") },
+                                    onClick = {
+                                        addMenu = false
+                                        newServer = Server(
+                                            name = "VMess",
+                                            protocol = "vmess",
+                                            port = 443,
+                                            method = "auto",
+                                            network = "ws",
+                                            security = "tls"
+                                        )
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("Trojan") },
+                                    onClick = {
+                                        addMenu = false
+                                        newServer = Server(
+                                            name = "Trojan",
+                                            protocol = "trojan",
+                                            port = 443,
+                                            network = "tcp",
+                                            security = "tls"
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
 
@@ -768,24 +849,6 @@ fun MainScreen(vm: MainViewModel) {
                             Icon(Icons.Default.Share, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text(stringResource(R.string.export_file), maxLines = 1)
-                        }
-
-                        FilledTonalButton(
-                            onClick = {
-                                newSsh = Server(
-                                    name = "SSH",
-                                    protocol = "ssh",
-                                    port = 443,
-                                    network = "ws",
-                                    security = "tls"
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("SSH", maxLines = 1)
                         }
                     }
                 }
@@ -963,11 +1026,11 @@ fun MainScreen(vm: MainViewModel) {
         }
     }
 
-    newSsh?.let { s ->
+    newServer?.let { s ->
         EditServerDialog(
             s,
             onSave = vm::addServer,
-            onClose = { newSsh = null }
+            onClose = { newServer = null }
         )
     }
 
