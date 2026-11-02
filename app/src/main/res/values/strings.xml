@@ -49,8 +49,11 @@
     <string name="telegram_channel">Telegram channel</string>
     <string name="youtube_channel">YouTube channel</string>
     <string name="field_username">SSH username</string>
-    <string name="field_ssh_mode">Mode (tcp = direct SSH, ws = WebSocket payload)</string>
+    <string name="field_ssh_mode">SSH mode</string>
+    <string name="field_proxy_host">HTTP proxy (host)</string>
+    <string name="field_proxy_port">Proxy port</string>
+    <string name="add_server">Add</string>
     <string name="field_payload">Payload</string>
     <string name="payload_hint">[crlf] [cr] [lf] [host] [host_port] [port] [path] [sni] [protocol] [ua] [ws_key] [split]</string>
-    <string name="ssh_required">Server address, valid port (1–65535) and username are required</string>
+    <string name="ssh_required">Server address and a valid port (1–65535) are required (plus username for SSH, and proxy host/port in proxy modes)</string>
 </resources>
