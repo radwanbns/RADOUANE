@@ -66,6 +66,26 @@ class OvpnTunnel(
         }
     }
 
+    /**
+     * وضع التمرير الخام (لـ OpenVPN الحقيقي): بدون SOCKS. كل اتصال يصل إلى المنفذ المحلي يُفتح
+     * له اتصال جديد بالسيرفر/البروكسي مع حقن البايلود (و TLS إن لزم) ثم تُمرَّر البايتات كما هي.
+     * يرجع المنفذ المحلي الذي يجب أن يتصل به عميل OpenVPN (127.0.0.1).
+     */
+    fun startRawForward(): Int {
+        try {
+            if (server.address.isBlank()) throw TunnelException("عنوان السيرفر فارغ.")
+            if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
+            testConnection()
+            val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
+            listener = ss
+            pool.execute { acceptLoop(ss, raw = true) }
+            return ss.localPort
+        } catch (e: Throwable) {
+            close()
+            throw IllegalStateException(friendlyError(e))
+        }
+    }
+
     fun close() {
         closed.set(true)
         try { listener?.close() } catch (_: Exception) {}
@@ -81,14 +101,35 @@ class OvpnTunnel(
         } catch (_: Exception) {}
     }
 
-    private fun acceptLoop(ss: ServerSocket) {
+    private fun acceptLoop(ss: ServerSocket, raw: Boolean = false) {
         while (!closed.get()) {
             try {
                 val client = ss.accept() ?: break
-                pool.execute { handleSocksClient(client) }
+                pool.execute { if (raw) handleRawClient(client) else handleSocksClient(client) }
             } catch (e: Exception) {
                 if (!closed.get()) Log.e(TAG, "accept: ${e.message}")
             }
+        }
+    }
+
+    /** تمرير خام: client(OpenVPN) <-> [payload/proxy/TLS] <-> السيرفر. يُغلَق الطرفان عند انتهاء أي اتجاه. */
+    private fun handleRawClient(client: Socket) {
+        var remote: Socket? = null
+        try {
+            client.tcpNoDelay = true
+            val ep = createEndpoint()
+            remote = ep.socket
+            val done = java.util.concurrent.CountDownLatch(1)
+            val cin = client.getInputStream()
+            val cout = client.getOutputStream()
+            Thread { try { pipe(cin, ep.output) } finally { done.countDown() } }.apply { isDaemon = true }.start()
+            Thread { try { pipe(ep.input, cout) } finally { done.countDown() } }.apply { isDaemon = true }.start()
+            done.await()
+        } catch (e: Exception) {
+            if (!closed.get()) Log.d(TAG, "raw client: ${e.message}")
+        } finally {
+            try { client.close() } catch (_: Exception) {}
+            try { remote?.close() } catch (_: Exception) {}
         }
     }
 
