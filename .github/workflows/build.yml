@@ -15,6 +15,7 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.9" }
+
       - name: Download Xray core (libv2ray.aar)
         run: |
           mkdir -p app/libs
@@ -27,22 +28,49 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.14904198" "cmake;3.22.1"
 
-      - name: Build ics-openvpn (AAR)
+      - name: Clone ics-openvpn
         run: |
           git clone --recurse-submodules --depth 1 --branch "$ICS_OPENVPN_REF" \
             https://github.com/schwabe/ics-openvpn.git /tmp/ics-openvpn
-          cd /tmp/ics-openvpn
-          ./gradlew --no-daemon :main:assembleSkeletonOvpn23Release \
-            || ./gradlew --no-daemon :main:assembleUiOvpn23Release
-          AAR=$(find main/build/outputs/aar -name '*ovpn23*release*.aar' | head -n1)
+
+      # :main في ics تطبيق (application) لا ينتج AAR؛ نحوّله إلى library أثناء البناء فقط
+      - name: Convert ics-openvpn main module to a library
+        working-directory: /tmp/ics-openvpn
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/ics_to_library.py"
+
+      - name: Build ics-openvpn (AAR)
+        working-directory: /tmp/ics-openvpn
+        run: |
+          ./gradlew --no-daemon :main:tasks --all > /tmp/ics-tasks.txt
+          CANDIDATES=$(grep -oE '^assemble[A-Za-z0-9]*Ovpn23Release' /tmp/ics-tasks.txt | sort -u)
+          echo "Candidate tasks:"; echo "$CANDIDATES"
+          # نفضّل skeleton (بدون واجهة ics وأيقونتها)، وإلا أول نسخة متاحة
+          TASK=$(echo "$CANDIDATES" | grep -i skeleton | head -n1)
+          [ -n "$TASK" ] || TASK=$(echo "$CANDIDATES" | head -n1)
+          test -n "$TASK" || { echo "No ovpn23 release assemble task found"; exit 1; }
+          echo "Using task: $TASK"
+          ./gradlew --no-daemon ":main:$TASK"
+          echo "AARs:"; find main/build/outputs/aar -name '*.aar'
+
+      - name: Package ics-openvpn.aar
+        working-directory: /tmp/ics-openvpn
+        run: |
+          AAR=$(find main/build/outputs/aar -name '*.aar' | grep -i ovpn23 | grep -i release | head -n1)
           test -n "$AAR" || { echo "ics-openvpn AAR not found"; exit 1; }
-          cp "$AAR" "$GITHUB_WORKSPACE/app/libs/ics-openvpn.aar"
+          echo "Source AAR: $AAR"
+          rm -rf /tmp/aar && mkdir /tmp/aar && cd /tmp/aar && unzip -q "/tmp/ics-openvpn/$AAR"
+          # AGP 8.5.2 يرفض AAR يشترط compileSdk/AGP أحدث؛ نخفّض الشروط (الكلاسات تعمل على 26+ بحسب ics)
+          META=META-INF/com/android/build/gradle/aar-metadata.properties
+          echo "--- metadata before"; cat "$META" || true
+          sed -i -E 's/^minCompileSdk=.*/minCompileSdk=34/; s/^minAgpVersion=.*/minAgpVersion=8.1.0/; /^minCompileSdkExtension=/d' "$META"
+          echo "--- metadata after"; cat "$META"
+          zip -qr "$GITHUB_WORKSPACE/app/libs/ics-openvpn.aar" .
 
       - name: Verify ics-openvpn AAR
         run: |
           ls -la app/libs
           unzip -p app/libs/ics-openvpn.aar classes.jar > /tmp/ics-classes.jar
-          unzip -l /tmp/ics-classes.jar | grep -E "core/(VpnStatus|ConfigParser|ProfileManager|OpenVPNService)\.class"
+          unzip -l /tmp/ics-classes.jar | grep -E "core/(VpnStatus|ConfigParser|ProfileManager|OpenVPNService|VPNLaunchHelper)\.class"
 
       - name: Build
         run: gradle assembleRelease --no-daemon
