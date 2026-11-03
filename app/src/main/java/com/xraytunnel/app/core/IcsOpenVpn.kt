@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import com.xraytunnel.app.data.Server
 import de.blinkt.openvpn.core.ConfigParser
+import de.blinkt.openvpn.core.Connection
 import de.blinkt.openvpn.core.ConnectionStatus
 import de.blinkt.openvpn.core.IOpenVPNServiceInternal
 import de.blinkt.openvpn.core.OpenVPNService
@@ -40,7 +41,7 @@ object IcsOpenVpn {
     private var sawActive = false
 
     /** يحلّل ملف .ovpn ويبدأ الاتصال. يرمي استثناءً برسالة مفهومة عند خطأ في الملف. */
-    fun start(ctx: Context, server: Server) {
+    fun start(ctx: Context, server: Server, forwardPort: Int = 0) {
         val parser = ConfigParser()
         try {
             parser.parseConfig(StringReader(server.ovpnConfig))
@@ -64,11 +65,19 @@ object IcsOpenVpn {
 
         // تعديلات المستخدم على العنوان/المنفذ/البروتوكول تُطبَّق على أول remote
         profile.mConnections.firstOrNull()?.let { c ->
-            if (server.address.isNotBlank()) c.mServerName = server.address
-            if (server.port in 1..65535) c.mServerPort = server.port.toString()
-            when (server.method) {
-                "udp" -> c.mUseUdp = true
-                "tcp" -> c.mUseUdp = false
+            if (forwardPort > 0) {
+                // Payload/WebSocket/Proxy: OpenVPN يتصل بالمُمرِّر المحلي (TCP) والمُمرِّر يتصل بالسيرفر
+                c.mServerName = "127.0.0.1"
+                c.mServerPort = forwardPort.toString()
+                c.mUseUdp = false
+                c.mProxyType = Connection.ProxyType.NONE
+            } else {
+                if (server.address.isNotBlank()) c.mServerName = server.address
+                if (server.port in 1..65535) c.mServerPort = server.port.toString()
+                when (server.method) {
+                    "udp" -> c.mUseUdp = true
+                    "tcp" -> c.mUseUdp = false
+                }
             }
         }
 
