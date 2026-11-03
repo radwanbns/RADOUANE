@@ -53,6 +53,7 @@ object ServerExporter {
                     "${if (q.isNotEmpty()) "?$q" else ""}#$name"
             }
             "ovpn", "openvpn" -> {
+                if (s.ovpnConfig.isNotBlank()) return null // لا يمكن ضغط ملف .ovpn كامل في رابط؛ استخدم JSON
                 val q = query(
                     "type" to s.network, "security" to s.security, "sni" to s.sni,
                     "host" to s.host, "path" to s.path, "payload" to s.payload,
