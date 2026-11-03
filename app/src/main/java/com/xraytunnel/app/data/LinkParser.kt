@@ -195,6 +195,11 @@ object LinkParser {
         val proto = q("proto").lowercase().takeIf { it == "udp" || it == "tcp" }
             ?: q("protocol").lowercase().takeIf { it == "udp" || it == "tcp" }
             ?: "tcp"
+        val proxy = q("proxy").trim()
+        val proxyHost = if (proxy.contains(":")) proxy.substringBeforeLast(":") else proxy
+        val proxyPort = if (proxy.contains(":"))
+            proxy.substringAfterLast(":").toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
+        else 8080
         return Server(
             name = u.fragment?.takeIf { it.isNotBlank() } ?: "OpenVPN",
             protocol = "ovpn",
@@ -209,6 +214,8 @@ object LinkParser {
             path = q("path"),
             payload = q("payload"),
             method = proto,
+            proxyHost = proxyHost,
+            proxyPort = proxyPort,
             insecure = q("allowInsecure") == "1" || q("insecure") == "1"
         )
     }
@@ -216,39 +223,61 @@ object LinkParser {
     /**
      * تحليل محتوى ملف .ovpn خام.
      * يستخرج remote + port + proto ويعاملها كـ OVPN مع إمكانية إضافة Payload لاحقاً.
-     * يدعم proto tcp و udp (يُحفظ في method ويُعرض في الواجهة).
+     * يدعم أي منفذ (1–65535) لـ tcp و udp.
+     * صيغ مدعومة:
+     *   remote host
+     *   remote host port
+     *   remote host port proto
+     *   port N
+     *   proto tcp|udp|tcp4|udp4|...
      */
     fun ovpnConfig(content: String): Server? {
         val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith(";") }
         var remoteHost = ""
-        var remotePort = 1194
+        var remotePort = 0
         var proto = "udp"
         var name = "OpenVPN"
         var username = ""
         var password = ""
+        var globalPort = 0
+
+        fun parsePort(s: String): Int? = s.toIntOrNull()?.takeIf { it in 1..65535 }
+        fun parseProto(s: String): String? {
+            val p = s.lowercase()
+            return when {
+                p.startsWith("udp") -> "udp"
+                p.startsWith("tcp") -> "tcp"
+                else -> null
+            }
+        }
 
         for (line in lines) {
             val parts = line.split(Regex("\\s+"))
             when (parts[0].lowercase()) {
                 "remote" -> {
-                    if (parts.size >= 2) remoteHost = parts[1]
-                    if (parts.size >= 3) remotePort = parts[2].toIntOrNull() ?: 1194
-                }
-                "proto" -> if (parts.size >= 2) {
-                    val p = parts[1].lowercase()
-                    if (p == "udp" || p == "tcp" || p == "udp4" || p == "tcp4" || p == "udp6" || p == "tcp6") {
-                        proto = if (p.startsWith("udp")) "udp" else "tcp"
+                    // remote <host> [port] [proto]
+                    if (parts.size >= 2 && remoteHost.isBlank()) {
+                        remoteHost = parts[1].trim().trim('[', ']')
                     }
+                    if (parts.size >= 3) parsePort(parts[2])?.let { if (remotePort == 0) remotePort = it }
+                    if (parts.size >= 4) parseProto(parts[3])?.let { proto = it }
                 }
-                "auth-user-pass" -> {
-                    // إذا كان هناك ملف مضمّن أو قيم، نتجاهل هنا؛ يمكن للمستخدم إدخالها يدوياً
-                }
+                "port" -> if (parts.size >= 2) parsePort(parts[1])?.let { globalPort = it }
+                "proto" -> if (parts.size >= 2) parseProto(parts[1])?.let { proto = it }
+                "auth-user-pass" -> { /* يدوي */ }
                 "dev" -> { /* ignore */ }
             }
         }
         if (remoteHost.isBlank()) return null
 
-        // نحاول نجيب اسم من سطر # أو من أول remote
+        // أولوية: منفذ remote ثم port العام ثم الافتراضي حسب proto
+        val finalPort = when {
+            remotePort in 1..65535 -> remotePort
+            globalPort in 1..65535 -> globalPort
+            proto == "tcp" -> 443
+            else -> 1194
+        }
+
         val commentName = content.lines().firstOrNull { it.trim().startsWith("#") }?.removePrefix("#")?.trim()
         if (!commentName.isNullOrBlank()) name = commentName
 
@@ -256,13 +285,13 @@ object LinkParser {
             name = name,
             protocol = "ovpn",
             address = remoteHost,
-            port = remotePort,
+            port = finalPort,
             username = username,
             secret = password,
             // network = وضع النفق (tcp/ws للـ payload). proto الأصلي يُحفظ في method
             network = "tcp",
             security = "none",
-            method = proto,           // proto الحقيقي من الملف: udp أو tcp
+            method = proto,
             payload = ""
         )
     }
