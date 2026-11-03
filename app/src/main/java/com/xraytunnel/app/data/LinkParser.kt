@@ -175,7 +175,7 @@ object LinkParser {
     }
 
     /**
-     * ovpn://host:port?type=ws|tcp&payload=...&security=tls&sni=...&host=...&path=...&allowInsecure=1#Name
+     * ovpn://[user:pass@]host:port?type=ws|tcp&payload=...&security=tls&sni=...&host=...&path=...&proto=udp|tcp&allowInsecure=1#Name
      * أو openvpn://...
      */
     private fun ovpnLink(link: String): Server? {
@@ -189,17 +189,26 @@ object LinkParser {
             else -> "tcp"
         }
         val tls = q("security").lowercase() == "tls" || q("tls") == "1"
+        val ui = u.encodedUserInfo ?: ""
+        val user = if (ui.contains(":")) Uri.decode(ui.substringBefore(":")) else ""
+        val pass = if (ui.contains(":")) Uri.decode(ui.substringAfter(":")) else Uri.decode(ui)
+        val proto = q("proto").lowercase().takeIf { it == "udp" || it == "tcp" }
+            ?: q("protocol").lowercase().takeIf { it == "udp" || it == "tcp" }
+            ?: "tcp"
         return Server(
             name = u.fragment?.takeIf { it.isNotBlank() } ?: "OpenVPN",
             protocol = "ovpn",
             address = host,
             port = port,
+            username = user,
+            secret = pass,
             network = net,
             security = if (tls) "tls" else "none",
             sni = q("sni"),
             host = q("host"),
             path = q("path"),
             payload = q("payload"),
+            method = proto,
             insecure = q("allowInsecure") == "1" || q("insecure") == "1"
         )
     }
@@ -207,6 +216,7 @@ object LinkParser {
     /**
      * تحليل محتوى ملف .ovpn خام.
      * يستخرج remote + port + proto ويعاملها كـ OVPN مع إمكانية إضافة Payload لاحقاً.
+     * يدعم proto tcp و udp (يُحفظ في method ويُعرض في الواجهة).
      */
     fun ovpnConfig(content: String): Server? {
         val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith(";") }
@@ -214,6 +224,8 @@ object LinkParser {
         var remotePort = 1194
         var proto = "udp"
         var name = "OpenVPN"
+        var username = ""
+        var password = ""
 
         for (line in lines) {
             val parts = line.split(Regex("\\s+"))
@@ -222,7 +234,15 @@ object LinkParser {
                     if (parts.size >= 2) remoteHost = parts[1]
                     if (parts.size >= 3) remotePort = parts[2].toIntOrNull() ?: 1194
                 }
-                "proto" -> if (parts.size >= 2) proto = parts[1].lowercase()
+                "proto" -> if (parts.size >= 2) {
+                    val p = parts[1].lowercase()
+                    if (p == "udp" || p == "tcp" || p == "udp4" || p == "tcp4" || p == "udp6" || p == "tcp6") {
+                        proto = if (p.startsWith("udp")) "udp" else "tcp"
+                    }
+                }
+                "auth-user-pass" -> {
+                    // إذا كان هناك ملف مضمّن أو قيم، نتجاهل هنا؛ يمكن للمستخدم إدخالها يدوياً
+                }
                 "dev" -> { /* ignore */ }
             }
         }
@@ -237,9 +257,12 @@ object LinkParser {
             protocol = "ovpn",
             address = remoteHost,
             port = remotePort,
-            network = "tcp",          // افتراضي، المستخدم يقدر يحولو لـ ws + payload
+            username = username,
+            secret = password,
+            // network = وضع النفق (tcp/ws للـ payload). proto الأصلي يُحفظ في method
+            network = "tcp",
             security = "none",
-            method = proto,           // نحفظ proto هنا (udp/tcp)
+            method = proto,           // proto الحقيقي من الملف: udp أو tcp
             payload = ""
         )
     }
