@@ -67,6 +67,11 @@ object SubscriptionUpdater {
             parseJson(t)?.takeIf { it.isNotEmpty() }?.let { return it }
         }
 
+        // ملف .ovpn كامل (عدة أسطر)
+        if (t.contains("remote ") && (t.contains("client") || t.contains("dev tun") || t.contains("proto "))) {
+            LinkParser.ovpnConfig(t)?.let { return listOf(it) }
+        }
+
         val decoded = if (t.contains("://")) t else (LinkParser.b64(t) ?: t)
         return decoded.lineSequence()
             .mapNotNull { LinkParser.parse(it) }
