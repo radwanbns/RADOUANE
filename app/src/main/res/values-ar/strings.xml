@@ -18,6 +18,7 @@
     <string name="locked_server">سيرفر من التحديث — لا يمكن تعديله أو حذفه</string>
     <string name="no_servers">لا توجد سيرفرات. اضغط «تحديث السيرفرات» أو الصق رابطاً من الحافظة.</string>
     <string name="no_server_selected">لم يتم اختيار سيرفر</string>
+    <string name="update_success">تم التحديث بنجاح</string>
     <string name="update_failed">فشل التحديث: %1$s</string>
     <string name="imported_fmt">تم استيراد %1$d سيرفر</string>
     <string name="nothing_found">لم يتم العثور على روابط صالحة</string>
@@ -34,7 +35,6 @@
     <string name="open_channel">فتح القناة</string>
     <string name="later">لاحقاً</string>
     <string name="uri_export_not_supported">تصدير URI غير مدعوم لهذا البروتوكول؛ استعمل مشاركة JSON.</string>
-    <string name="update_success">Update Success</string>
     <string name="update_no_changes">لم يتم العثور على سيرفرات جديدة</string>
     <string name="import_file">استيراد ملف</string>
     <string name="export_file">تصدير ملف</string>
@@ -49,6 +49,7 @@
     <string name="telegram_channel">قناة تلغرام</string>
     <string name="youtube_channel">قناة يوتيوب</string>
     <string name="field_username">اسم مستخدم SSH</string>
+    <string name="field_username_optional">اسم المستخدم (اختياري)</string>
     <string name="field_ssh_mode">نمط SSH</string>
     <string name="field_proxy_host">بروكسي HTTP (العنوان)</string>
     <string name="field_proxy_port">منفذ البروكسي</string>
@@ -56,4 +57,23 @@
     <string name="field_payload">البايلود</string>
     <string name="payload_hint">[crlf] [cr] [lf] [host] [host_port] [port] [path] [sni] [protocol] [ua] [ws_key] [split]</string>
     <string name="ssh_required">عنوان السيرفر ومنفذ صالح (1–65535) مطلوبان (مع اسم المستخدم في SSH، وعنوان ومنفذ البروكسي في أنماط Proxy)</string>
+    <string name="field_address">العنوان (السيرفر)</string>
+    <string name="field_host_ws">Host (WS / HTTP)</string>
+    <string name="field_host_tag">Host  →  [host]</string>
+    <string name="field_path_tag">Path  →  [path]</string>
+    <string name="field_port">المنفذ</string>
+    <string name="field_protocol">البروتوكول</string>
+    <string name="field_proto">البروتوكول (UDP/TCP)</string>
+    <string name="field_mode">الوضع</string>
+    <string name="field_sni">SNI</string>
+    <string name="field_fingerprint">البصمة</string>
+    <string name="field_flow">Flow</string>
+    <string name="protocol_ssh">SSH</string>
+    <string name="protocol_openvpn">OpenVPN</string>
+    <string name="protocol_v2ray">V2Ray</string>
+    <string name="share_json">JSON</string>
+    <string name="share_uri">URI</string>
+    <string name="mode_direct">مباشر</string>
+    <string name="mode_payload">بايلود</string>
+    <string name="mode_tls_payload">TLS-بايلود</string>
 </resources>
