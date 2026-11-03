@@ -52,6 +52,23 @@ object ServerExporter {
                 "ssh://${Uri.encode(s.username)}:${Uri.encode(s.secret)}@$host:${s.port}" +
                     "${if (q.isNotEmpty()) "?$q" else ""}#$name"
             }
+            "ovpn", "openvpn" -> {
+                val q = query(
+                    "type" to s.network, "security" to s.security, "sni" to s.sni,
+                    "host" to s.host, "path" to s.path, "payload" to s.payload,
+                    "proto" to s.method.ifBlank { "tcp" },
+                    "allowInsecure" to if (s.insecure) "1" else ""
+                )
+                val userInfo = when {
+                    s.username.isNotBlank() && s.secret.isNotBlank() ->
+                        "${Uri.encode(s.username)}:${Uri.encode(s.secret)}"
+                    s.username.isNotBlank() -> Uri.encode(s.username)
+                    s.secret.isNotBlank() -> Uri.encode(s.secret)
+                    else -> ""
+                }
+                val authority = if (userInfo.isNotEmpty()) "$userInfo@$host:${s.port}" else "$host:${s.port}"
+                "ovpn://$authority${if (q.isNotEmpty()) "?$q" else ""}#$name"
+            }
             "shadowsocks" -> {
                 val user = Base64.encodeToString("${s.method}:${s.secret}".toByteArray(), Base64.NO_WRAP)
                 "ss://$user@$host:${s.port}#$name"
