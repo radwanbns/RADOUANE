@@ -53,3 +53,13 @@
 
 ## ملفات المشاركة `.xtun` (مقفل / غير مقفل)
 مشفّرة دائمًا وتعمل مع V2Ray وSSH. **المقفل:** يُستورد مخفيًا، لا تعديل ولا إعادة تصدير، الحذف فقط. **غير المقفل:** يُستورد كسيرفر عادي قابل للتعديل.
+
+
+## OpenVPN الحقيقي (ics-openvpn)
+- وضع OVPN القديم (Payload + SOCKS محلي) **ليس عميل OpenVPN**: لا مصافحة TLS ولا tun ولا إعادة اتصال، ولذلك كان غير مستقر ويعمل كـ SOCKS فقط. بقي كوضع احتياطي عند ترك خانة `.ovpn` فارغة.
+- الآن: عند لصق/استيراد ملف `.ovpn` كاملاً يُشغَّل عبر مكتبة **ics-openvpn** (OpenVPN 2.x الحقيقي): واجهة tun حقيقية، كل الترافيك يمر بالنفق، وإعادة اتصال تلقائية عند تغيّر الشبكة.
+- عند تشغيل OpenVPN الحقيقي لا تعمل نواة Xray (ics-openvpn ينشئ واجهة VPN بنفسه)؛ `XrayVpnService` تبقى للإشعار وعدّاد الوقت والحالة.
+- الشهادات والمفاتيح يجب أن تكون **مضمّنة** داخل الملف (`<ca>` `<cert>` `<key>` `<tls-auth>`/`<tls-crypt>`). الملفات الخارجية (`ca ca.crt`) غير مدعومة.
+- `http-proxy host port` داخل الملف مدعوم من ics-openvpn. حقن Payload ([crlf] ...) غير مدعوم مع OpenVPN الحقيقي.
+- البناء: يبني `build.yml` مكتبة ics-openvpn كـ `app/libs/ics-openvpn.aar` (يحتاج NDK و submodules). محلياً: استنسخ `schwabe/ics-openvpn --recurse-submodules` ثم `./gradlew :main:assembleSkeletonOvpn23Release` وانسخ الـ AAR إلى `app/libs/ics-openvpn.aar`.
+- **الترخيص:** ics-openvpn مرخّص GPLv2؛ تضمينه يستلزم نشر كود تطبيقك بنفس الترخيص (وقد يتعارض مع نشره على Google Play أو مع AdMob، راجع ذلك قانونياً).
