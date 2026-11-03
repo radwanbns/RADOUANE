@@ -119,21 +119,22 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.field_name)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(address, { address = it }, label = { Text("Address (Server)") },
+                OutlinedTextField(address, { address = it }, label = { Text(stringResource(R.string.field_address)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (streamBased) {
                     // اختيار نوع V2Ray: VLESS / VMess / Trojan
-                    ChipRow("Protocol", listOf("vless", "vmess", "trojan"), protocol) { protocol = it }
-                    OutlinedTextField(host, { host = it }, label = { Text("Host (WS / HTTP)") },
+                    ChipRow(stringResource(R.string.field_protocol), listOf("vless", "vmess", "trojan"), protocol) { protocol = it }
+                    OutlinedTextField(host, { host = it }, label = { Text(stringResource(R.string.field_host_ws)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 if (isSsh || isOvpn) {
                     OutlinedTextField(username, { username = it }, label = {
-                        Text(if (isOvpn) "Username (optional)" else stringResource(R.string.field_username))
+                        Text(stringResource(if (isOvpn) R.string.field_username_optional else R.string.field_username))
                     }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) },
-                    label = { Text("Port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text(stringResource(R.string.field_port)) }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(secret, { secret = it }, label = { Text(stringResource(secretLabel)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -146,17 +147,20 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         }
                     } else {
                         // proto الحقيقي من ملف .ovpn (udp / tcp)
-                        ChipRow("Proto (UDP/TCP)", listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
+                        ChipRow(stringResource(R.string.field_proto), listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
                         // أوضاع OVPN المبسطة (نفق الـ payload)
-                        ChipRow("Mode", listOf("Direct", "Payload", "TLS-Payload"), when {
-                            sshTls && sshPayload -> "TLS-Payload"
-                            sshPayload -> "Payload"
-                            else -> "Direct"
+                        val modeDirect = stringResource(R.string.mode_direct)
+                        val modePayload = stringResource(R.string.mode_payload)
+                        val modeTlsPayload = stringResource(R.string.mode_tls_payload)
+                        ChipRow(stringResource(R.string.field_mode), listOf(modeDirect, modePayload, modeTlsPayload), when {
+                            sshTls && sshPayload -> modeTlsPayload
+                            sshPayload -> modePayload
+                            else -> modeDirect
                         }) { picked ->
                             when (picked) {
-                                "Direct" -> { sshTls = false; sshPayload = false }
-                                "Payload" -> { sshTls = false; sshPayload = true }
-                                "TLS-Payload" -> { sshTls = true; sshPayload = true }
+                                modeDirect -> { sshTls = false; sshPayload = false }
+                                modePayload -> { sshTls = false; sshPayload = true }
+                                modeTlsPayload -> { sshTls = true; sshPayload = true }
                             }
                         }
                     }
@@ -169,13 +173,13 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             modifier = Modifier.fillMaxWidth())
                     }
                     if (sshTls) {
-                        OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
+                        OutlinedTextField(sni, { sni = it }, label = { Text(stringResource(R.string.field_sni)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
                     if (sshPayload || isOvpn) {
-                        OutlinedTextField(host, { host = it }, label = { Text("Host  →  [host]") },
+                        OutlinedTextField(host, { host = it }, label = { Text(stringResource(R.string.field_host_tag)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(path, { path = it }, label = { Text("Path  →  [path]") },
+                        OutlinedTextField(path, { path = it }, label = { Text(stringResource(R.string.field_path_tag)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(payload, { payload = it },
                             label = { Text(stringResource(R.string.field_payload)) },
@@ -196,11 +200,11 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         listOf("tcp", "ws", "grpc", "h2", "kcp", "httpupgrade", "xhttp"), network) { network = it }
                     ChipRow(stringResource(R.string.field_security),
                         listOf("none", "tls", "reality"), security) { security = it }
-                    OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
+                    OutlinedTextField(sni, { sni = it }, label = { Text(stringResource(R.string.field_sni)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(path, { path = it }, label = { Text(stringResource(R.string.field_path)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(fp, { fp = it }, label = { Text("Fingerprint") },
+                    OutlinedTextField(fp, { fp = it }, label = { Text(stringResource(R.string.field_fingerprint)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     if (security == "tls") {
                         Row(
@@ -212,10 +216,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         }
                     }
                     if (protocol == "vless")
-                        OutlinedTextField(flow, { flow = it }, label = { Text("Flow") },
+                        OutlinedTextField(flow, { flow = it }, label = { Text(stringResource(R.string.field_flow)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                 } else if (protocol == "hysteria2") {
-                    OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
+                    OutlinedTextField(sni, { sni = it }, label = { Text(stringResource(R.string.field_sni)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     Row(
                         modifier = Modifier.fillMaxWidth(),
