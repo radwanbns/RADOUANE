@@ -3,6 +3,9 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+env:
+  # ثبّت وسماً/commit مُجرَّباً بدل master لضمان بناء قابل للتكرار
+  ICS_OPENVPN_REF: master
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +20,20 @@ jobs:
           mkdir -p app/libs
           curl -fL -o app/libs/libv2ray.aar \
             https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
+
+      # ---- OpenVPN حقيقي: بناء ics-openvpn كـ AAR (GPLv2، يحتاج NDK + submodules) ----
+      - name: Build ics-openvpn (AAR)
+        run: |
+          git clone --recurse-submodules --depth 1 --branch "$ICS_OPENVPN_REF" \
+            https://github.com/schwabe/ics-openvpn.git /tmp/ics-openvpn
+          cd /tmp/ics-openvpn
+          # skeleton = بدون واجهة ics (لا أيقونة/أنشطة إضافية)؛ ovpn23 = OpenVPN 2.x
+          ./gradlew --no-daemon :main:assembleSkeletonOvpn23Release \
+            || ./gradlew --no-daemon :main:assembleUiOvpn23Release
+          AAR=$(find main/build/outputs/aar -name '*ovpn23*release*.aar' | head -n1)
+          test -n "$AAR" || { echo "ics-openvpn AAR not found"; exit 1; }
+          cp "$AAR" "$GITHUB_WORKSPACE/app/libs/ics-openvpn.aar"
+
       - name: Build
         run: gradle assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
