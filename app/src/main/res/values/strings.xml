@@ -76,4 +76,7 @@
     <string name="mode_direct">Direct</string>
     <string name="mode_payload">Payload</string>
     <string name="mode_tls_payload">TLS-Payload</string>
+    <string name="field_ovpn_config">.ovpn config (real OpenVPN)</string>
+    <string name="ovpn_real_hint">Real OpenVPN via ics-openvpn: all traffic goes through the OpenVPN tunnel. Certificates/keys must be inline.</string>
+    <string name="ovpn_legacy_hint">Leave empty for the old Payload/WebSocket SOCKS mode (not a real OpenVPN client).</string>
 </resources>
