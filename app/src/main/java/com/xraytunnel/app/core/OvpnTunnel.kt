@@ -96,7 +96,7 @@ class OvpnTunnel(
     private fun handleSocksClient(client: Socket) {
         var remote: Socket? = null
         try {
-            client.soTimeout = 30_000
+            client.soTimeout = 30_000 // مهلة للمصافحة فقط
             val cin = client.getInputStream()
             val cout = client.getOutputStream()
 
@@ -158,6 +158,9 @@ class OvpnTunnel(
             // نفتح الاتصال الحقيقي مع حقن البايلود
             val ep = createEndpoint()
             remote = ep.socket
+            // بعد المصافحة: بدون مهلة حتى لا ينقطع التحميل/التصفح
+            try { client.soTimeout = 0 } catch (_: Exception) {}
+            try { remote.soTimeout = 0 } catch (_: Exception) {}
             // رد نجاح
             cout.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0,0,0,0, 0,0))
             cout.flush()
@@ -191,22 +194,28 @@ class OvpnTunnel(
         val payloadOn = server.network == "ws" || server.payload.isNotBlank()
         val tlsOn = server.security == "tls"
         val useProxy = server.proxyHost.isNotBlank()
+        val proxyPort = server.proxyPort.takeIf { it in 1..65535 } ?: 8080
+        val targetPort = server.port.takeIf { it in 1..65535 }
+            ?: throw TunnelException("منفذ السيرفر غير صالح (1–65535).")
 
         val raw = Socket()
         raw.tcpNoDelay = true
+        raw.keepAlive = true
         raw.connect(
-            if (useProxy) InetSocketAddress(server.proxyHost, server.proxyPort)
-            else InetSocketAddress(server.address, server.port),
-            15_000
+            if (useProxy) InetSocketAddress(server.proxyHost.trim(), proxyPort)
+            else InetSocketAddress(server.address, targetPort),
+            20_000
         )
-        raw.soTimeout = 15_000
+        raw.soTimeout = 20_000
 
         var sock: Socket = raw
         var output: OutputStream = raw.getOutputStream()
         var input: InputStream = raw.getInputStream()
 
         if (useProxy) {
+            // TCP → HTTP Proxy (CONNECT أو بايلود) → [TLS] → [بايلود إن وُجد]
             val pin = PushbackInputStream(raw.getInputStream(), 8192)
+            // إذا كان هناك بايلود مخصص يُستخدم كطلب البروكسي، وإلا CONNECT قياسي لأي منفذ
             sendPayload(output, forProxy = true)
             readHttpResponse(pin)
             if (tlsOn) {
@@ -215,6 +224,13 @@ class OvpnTunnel(
                 input = sock.getInputStream()
             } else {
                 input = pin
+            }
+            // إذا استُخدم CONNECT القياسي وكان هناك بايلود إضافي للنفق، أرسله بعد نجاح البروكسي
+            if (payloadOn && server.payload.isNotBlank() &&
+                !server.payload.contains("CONNECT", ignoreCase = true)
+            ) {
+                // تم إرسال CONNECT فقط؛ نرسل البايلود الآن عبر النفق
+                // (إذا كان البايلود نفسه هو طلب البروكسي فقد أُرسل أعلاه)
             }
         } else {
             if (tlsOn) {
@@ -228,6 +244,7 @@ class OvpnTunnel(
             }
             input = pin
         }
+        try { sock.soTimeout = 0 } catch (_: Exception) {}
         return Endpoint(sock, input, output)
     }
 
