@@ -54,7 +54,8 @@ for blk in ("signingConfigs", "splits", "dependenciesInfo", "bundle", "optimizat
 APP_ONLY = (
     "applicationId|applicationIdSuffix|testApplicationId|signingConfig|"
     "versionNameSuffix|versionCode|versionName|"
-    "isShrinkResources|shrinkResources|targetSdk|targetSdkPreview"
+    "isShrinkResources|shrinkResources|targetSdk|targetSdkPreview|"
+    "generateLocaleConfig|isCrunchPngs|crunchPngs"
 )
 s = re.sub(r"^[ \t]*(?:" + APP_ONLY + r")\b.*\n", "", s, flags=re.M)
 
