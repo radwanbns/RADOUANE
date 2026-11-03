@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.xraytunnel.app.MainActivity
 import com.xraytunnel.app.R
 import com.xraytunnel.app.core.ConfigBuilder
+import com.xraytunnel.app.core.IcsOpenVpn
 import com.xraytunnel.app.core.OvpnTunnel
 import com.xraytunnel.app.core.SshTunnel
 import com.xraytunnel.app.core.XrayCore
@@ -45,6 +46,8 @@ class XrayVpnService : VpnService() {
     private var pfd: ParcelFileDescriptor? = null
     private var sshTunnel: SshTunnel? = null
     private var ovpnTunnel: OvpnTunnel? = null
+    /** true أثناء تشغيل OpenVPN الحقيقي عبر ics-openvpn (هو من ينشئ واجهة tun وليس هذه الخدمة). */
+    @Volatile private var icsActive = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
     // Serialize start/stop/switch so a server switch cannot race an in-progress connection.
@@ -89,7 +92,7 @@ class XrayVpnService : VpnService() {
     private fun enforceInternetAvailability() {
         scope.launch {
             vpnMutex.withLock {
-                if (state.value != VpnState.Disconnected && !hasPhysicalNetwork()) {
+                if (!icsActive && state.value != VpnState.Disconnected && !hasPhysicalNetwork()) {
                     lastError.value = "انقطع اتصال الإنترنت؛ تم إيقاف نفق VPN."
                     stopVpn()
                 }
@@ -142,6 +145,10 @@ class XrayVpnService : VpnService() {
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
         try {
+            if (server.isRealOvpn) {
+                startRealOvpn(server)
+                return
+            }
             // SSH أو OVPN: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء البايلود/TLS فوراً.
             val config = when (server.protocol) {
                 "ssh" -> {
@@ -198,28 +205,70 @@ class XrayVpnService : VpnService() {
             pfd = p
             XrayCore.start(this, config, p.fd)
              state.value = VpnState.Connected
-            creditTicker?.cancel()
-            creditTicker = scope.launch {
-                while (state.value == VpnState.Connected) {
-                    kotlinx.coroutines.delay(1000L)
-                    if (state.value != VpnState.Connected) break
-                    if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
-                        lastError.value = "انتهى الوقت المتاح؛ تم فصل VPN."
-                        vpnMutex.withLock { stopVpn() }
-                        break
-                    }
-                }
-            }
+            startCreditTicker()
         } catch (e: Throwable) {
             lastError.value = e.message ?: e.javaClass.simpleName
             stopVpn()
         }
     }
 
+
+    /** يخصم ثانية واحدة فقط أثناء حالة Connected. */
+    private fun startCreditTicker() {
+        creditTicker?.cancel()
+        creditTicker = scope.launch {
+            while (state.value == VpnState.Connected) {
+                kotlinx.coroutines.delay(1000L)
+                if (state.value != VpnState.Connected) break
+                if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
+                    lastError.value = "انتهى الوقت المتاح؛ تم فصل VPN."
+                    vpnMutex.withLock { stopVpn() }
+                    break
+                }
+            }
+        }
+    }
+
+    /**
+     * OpenVPN حقيقي عبر ics-openvpn: لا نستدعي Builder().establish() ولا نشغّل Xray؛
+     * المكتبة تنشئ tun وتدير المصافحة وإعادة الاتصال، ونحن نعكس حالتها على [state].
+     */
+    private fun startRealOvpn(server: com.xraytunnel.app.data.Server) {
+        icsActive = true
+        IcsOpenVpn.observe { st ->
+            scope.launch {
+                vpnMutex.withLock {
+                    if (!icsActive) return@withLock
+                    when (st) {
+                        IcsOpenVpn.Status.Connected -> if (state.value != VpnState.Connected) {
+                            state.value = VpnState.Connected
+                            startCreditTicker()
+                        }
+                        IcsOpenVpn.Status.Connecting -> if (state.value == VpnState.Disconnected) {
+                            state.value = VpnState.Connecting
+                        }
+                        // انقطاع شبكة مؤقت: نبقى متصلين ظاهرياً؛ OpenVPN يعيد الاتصال وحده
+                        IcsOpenVpn.Status.Waiting -> {}
+                        is IcsOpenVpn.Status.Failed -> {
+                            lastError.value = st.message
+                            stopVpn()
+                        }
+                        IcsOpenVpn.Status.Stopped -> if (state.value != VpnState.Disconnected) stopVpn()
+                    }
+                }
+            }
+        }
+        IcsOpenVpn.start(this, server)
+    }
+
     /** Stop only the tunnel; keep this foreground service alive for an immediate reconnect. */
     private fun stopTunnelOnly() {
         creditTicker?.cancel()
         creditTicker = null
+        if (icsActive) {
+            icsActive = false
+            IcsOpenVpn.stop(this)
+        }
         XrayCore.stop()
         try { sshTunnel?.close() } catch (_: Exception) {}
         sshTunnel = null
