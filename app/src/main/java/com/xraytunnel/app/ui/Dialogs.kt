@@ -97,10 +97,12 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
     // بروتوكول V2Ray قابل للتغيير داخل الحوار
     var protocol by remember { mutableStateOf(server.protocol) }
     // proto الأصلي لـ OpenVPN (udp/tcp) محفوظ في method
+    var ovpnConfig by remember { mutableStateOf(server.ovpnConfig) }
     var ovpnProto by remember { mutableStateOf(server.method.takeIf { it == "udp" || it == "tcp" } ?: "tcp") }
 
     val isSsh = protocol == "ssh"
     val isOvpn = protocol == "ovpn"
+    val realOvpn = isOvpn && ovpnConfig.isNotBlank()
     val isPayloadProto = isSsh || isOvpn
     val streamBased = protocol in listOf("vmess", "vless", "trojan")
     val secretLabel = when (protocol) {
@@ -146,9 +148,16 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             }
                         }
                     } else {
+                        // OpenVPN الحقيقي (ics-openvpn): الصق محتوى ملف .ovpn كاملاً
+                        OutlinedTextField(ovpnConfig, { ovpnConfig = it },
+                            label = { Text(stringResource(R.string.field_ovpn_config)) },
+                            supportingText = { Text(stringResource(
+                                if (realOvpn) R.string.ovpn_real_hint else R.string.ovpn_legacy_hint)) },
+                            minLines = 4, maxLines = 10, modifier = Modifier.fillMaxWidth())
                         // proto الحقيقي من ملف .ovpn (udp / tcp) — أي منفذ 1–65535 مدعوم
                         ChipRow(stringResource(R.string.field_proto), listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
                         // أوضاع OVPN المبسطة (نفق الـ payload)
+                        if (!realOvpn) {
                         val modeDirect = stringResource(R.string.mode_direct)
                         val modePayload = stringResource(R.string.mode_payload)
                         val modeTlsPayload = stringResource(R.string.mode_tls_payload)
@@ -163,9 +172,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                                 modeTlsPayload -> { sshTls = true; sshPayload = true }
                             }
                         }
+                        }
                     }
                     // بروكسي HTTP (SSH عند تفعيل الوضع، و OVPN دائماً فوق البايلود)
-                    if ((sshProxy && isSsh) || isOvpn) {
+                    if ((sshProxy && isSsh) || (isOvpn && !realOvpn)) {
                         OutlinedTextField(proxyHost, { proxyHost = it }, label = { Text(stringResource(R.string.field_proxy_host)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) },
@@ -177,7 +187,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         OutlinedTextField(sni, { sni = it }, label = { Text(stringResource(R.string.field_sni)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
-                    if (sshPayload || isOvpn) {
+                    if (sshPayload || (isOvpn && !realOvpn)) {
                         OutlinedTextField(host, { host = it }, label = { Text(stringResource(R.string.field_host_tag)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(path, { path = it }, label = { Text(stringResource(R.string.field_path_tag)) },
@@ -252,6 +262,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     protocol = protocol,
                     username = username.trim(),
                     payload = payload,
+                    ovpnConfig = if (isOvpn) ovpnConfig.trim() else "",
                     name = name.trim().ifBlank { server.name },
                     address = address.trim(),
                     port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
