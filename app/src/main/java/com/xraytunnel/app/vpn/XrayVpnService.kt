@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.xraytunnel.app.MainActivity
 import com.xraytunnel.app.R
 import com.xraytunnel.app.core.ConfigBuilder
+import com.xraytunnel.app.core.OvpnTunnel
 import com.xraytunnel.app.core.SshTunnel
 import com.xraytunnel.app.core.XrayCore
 import com.xraytunnel.app.data.Repo
@@ -43,6 +44,7 @@ class XrayVpnService : VpnService() {
 
     private var pfd: ParcelFileDescriptor? = null
     private var sshTunnel: SshTunnel? = null
+    private var ovpnTunnel: OvpnTunnel? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
     // Serialize start/stop/switch so a server switch cannot race an in-progress connection.
@@ -140,27 +142,47 @@ class XrayVpnService : VpnService() {
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
         try {
-            // SSH: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء الدخول/البايلود/TLS فوراً.
-            val config = if (server.protocol == "ssh") {
-                val tunnel = SshTunnel(
-                    server,
-                    onFatal = { msg ->
-                        scope.launch {
-                            vpnMutex.withLock {
-                                if (state.value != VpnState.Disconnected) {
-                                    lastError.value = msg
-                                    stopVpn()
+            // SSH أو OVPN: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء البايلود/TLS فوراً.
+            val config = when (server.protocol) {
+                "ssh" -> {
+                    val tunnel = SshTunnel(
+                        server,
+                        onFatal = { msg ->
+                            scope.launch {
+                                vpnMutex.withLock {
+                                    if (state.value != VpnState.Disconnected) {
+                                        lastError.value = msg
+                                        stopVpn()
+                                    }
                                 }
                             }
-                        }
-                    },
-                    onWarning = { msg -> lastError.value = msg }
-                )
-                val port = tunnel.start() // يرمي استثناء برسالة مفهومة عند الفشل
-                sshTunnel = tunnel
-                ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
-            } else {
-                ConfigBuilder.build(server)
+                        },
+                        onWarning = { msg -> lastError.value = msg }
+                    )
+                    val port = tunnel.start()
+                    sshTunnel = tunnel
+                    ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
+                }
+                "ovpn" -> {
+                    val tunnel = OvpnTunnel(
+                        server,
+                        onFatal = { msg ->
+                            scope.launch {
+                                vpnMutex.withLock {
+                                    if (state.value != VpnState.Disconnected) {
+                                        lastError.value = msg
+                                        stopVpn()
+                                    }
+                                }
+                            }
+                        },
+                        onWarning = { msg -> lastError.value = msg }
+                    )
+                    val port = tunnel.start()
+                    ovpnTunnel = tunnel
+                    ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
+                }
+                else -> ConfigBuilder.build(server)
             }
             val p = Builder()
                 .setSession("Xray Tunnel")
@@ -201,6 +223,8 @@ class XrayVpnService : VpnService() {
         XrayCore.stop()
         try { sshTunnel?.close() } catch (_: Exception) {}
         sshTunnel = null
+        try { ovpnTunnel?.close() } catch (_: Exception) {}
+        ovpnTunnel = null
         try { pfd?.close() } catch (_: Exception) {}
         pfd = null
         state.value = VpnState.Disconnected
