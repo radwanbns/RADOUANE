@@ -146,7 +146,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             }
                         }
                     } else {
-                        // proto الحقيقي من ملف .ovpn (udp / tcp)
+                        // proto الحقيقي من ملف .ovpn (udp / tcp) — أي منفذ 1–65535 مدعوم
                         ChipRow(stringResource(R.string.field_proto), listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
                         // أوضاع OVPN المبسطة (نفق الـ payload)
                         val modeDirect = stringResource(R.string.mode_direct)
@@ -164,7 +164,8 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             }
                         }
                     }
-                    if (sshProxy && isSsh) {
+                    // بروكسي HTTP (SSH عند تفعيل الوضع، و OVPN دائماً فوق البايلود)
+                    if ((sshProxy && isSsh) || isOvpn) {
                         OutlinedTextField(proxyHost, { proxyHost = it }, label = { Text(stringResource(R.string.field_proxy_host)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) },
@@ -237,10 +238,12 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
         },
         confirmButton = {
             Button(onClick = {
-                val badProxy = isSsh && sshProxy &&
+                val badSshProxy = isSsh && sshProxy &&
                     (proxyHost.isBlank() || proxyPort.toIntOrNull() !in 1..65535)
+                val badOvpnProxy = isOvpn && proxyHost.isNotBlank() &&
+                    proxyPort.toIntOrNull() !in 1..65535
                 if (address.isBlank() || port.toIntOrNull() !in 1..65535 ||
-                    (isSsh && username.isBlank()) || badProxy
+                    (isSsh && username.isBlank()) || badSshProxy || badOvpnProxy
                 ) {
                     invalid = true
                     return@Button
@@ -262,7 +265,11 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     flow = flow.trim(),
                     insecure = insecure,
                     method = if (isOvpn) ovpnProto else server.method,
-                    proxyHost = if (isSsh && sshProxy) proxyHost.trim() else "",
+                    proxyHost = when {
+                        isSsh && sshProxy -> proxyHost.trim()
+                        isOvpn && proxyHost.isNotBlank() -> proxyHost.trim()
+                        else -> ""
+                    },
                     proxyPort = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
                 ))
                 onClose()
