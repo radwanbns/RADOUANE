@@ -29,7 +29,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // ics-openvpn مبنيّة بـ Kotlin أحدث من مترجم المشروع؛ نتجاوز فحص إصدار الـ metadata
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
     buildFeatures { compose = true }
     packaging { jniLibs { useLegacyPackaging = true } }
 }
