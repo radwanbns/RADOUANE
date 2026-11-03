@@ -47,12 +47,16 @@ def remove_block(text: str, name: str) -> str:
         text = text[: m.start()] + text[end:]
 
 
-for blk in ("signingConfigs", "splits", "dependenciesInfo", "bundle"):
+for blk in ("signingConfigs", "splits", "dependenciesInfo", "bundle", "optimization"):
     s = remove_block(s, blk)
 
-# 3) أسطر التوقيع ومعرّف التطبيق
-s = re.sub(r"^.*\b(applicationId|applicationIdSuffix|testApplicationId|signingConfig)\b.*\n",
-           "", s, flags=re.M)
+# 3) أسطر خاصة بالتطبيقات فقط (غير موجودة في DSL المكتبات في AGP 9)
+APP_ONLY = (
+    "applicationId|applicationIdSuffix|testApplicationId|signingConfig|"
+    "versionNameSuffix|versionCode|versionName|"
+    "isShrinkResources|shrinkResources|targetSdk|targetSdkPreview"
+)
+s = re.sub(r"^[ \t]*(?:" + APP_ONLY + r")\b.*\n", "", s, flags=re.M)
 
 # 4) متغيرات التطبيق -> المكتبة
 s = s.replace("applicationVariants", "libraryVariants")
