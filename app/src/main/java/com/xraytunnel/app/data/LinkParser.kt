@@ -18,7 +18,10 @@ object LinkParser {
                 link.startsWith("socks://") || link.startsWith("socks5://") -> socks(link)
                 link.startsWith("hysteria2://") || link.startsWith("hy2://") -> uriBased(link, "hysteria2")
                 link.startsWith("ssh://") -> ssh(link)
+                link.startsWith("ovpn://") || link.startsWith("openvpn://") -> ovpnLink(link)
                 link.startsWith("wireguard://") || link.startsWith("wg://") -> uriBased(link, "wireguard")
+                // ملف .ovpn خام
+                link.contains("remote ") && (link.contains("client") || link.contains("dev tun") || link.contains("proto ")) -> ovpnConfig(link)
                 else -> null
             }
         } catch (e: Exception) { null }
@@ -168,6 +171,76 @@ object LinkParser {
             name = u.fragment?.takeIf { it.isNotBlank() } ?: "SOCKS",
             protocol = "socks", address = host,
             port = if (u.port > 0) u.port else 1080, secret = cred
+        )
+    }
+
+    /**
+     * ovpn://host:port?type=ws|tcp&payload=...&security=tls&sni=...&host=...&path=...&allowInsecure=1#Name
+     * أو openvpn://...
+     */
+    private fun ovpnLink(link: String): Server? {
+        val u = Uri.parse(link)
+        val host = u.host ?: return null
+        val port = if (u.port in 1..65535) u.port else 1194
+        fun q(k: String) = u.getQueryParameter(k) ?: ""
+        val net = when {
+            q("type").lowercase() in listOf("ws", "websocket", "payload") -> "ws"
+            q("payload").isNotBlank() -> "ws"
+            else -> "tcp"
+        }
+        val tls = q("security").lowercase() == "tls" || q("tls") == "1"
+        return Server(
+            name = u.fragment?.takeIf { it.isNotBlank() } ?: "OpenVPN",
+            protocol = "ovpn",
+            address = host,
+            port = port,
+            network = net,
+            security = if (tls) "tls" else "none",
+            sni = q("sni"),
+            host = q("host"),
+            path = q("path"),
+            payload = q("payload"),
+            insecure = q("allowInsecure") == "1" || q("insecure") == "1"
+        )
+    }
+
+    /**
+     * تحليل محتوى ملف .ovpn خام.
+     * يستخرج remote + port + proto ويعاملها كـ OVPN مع إمكانية إضافة Payload لاحقاً.
+     */
+    fun ovpnConfig(content: String): Server? {
+        val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith(";") }
+        var remoteHost = ""
+        var remotePort = 1194
+        var proto = "udp"
+        var name = "OpenVPN"
+
+        for (line in lines) {
+            val parts = line.split(Regex("\\s+"))
+            when (parts[0].lowercase()) {
+                "remote" -> {
+                    if (parts.size >= 2) remoteHost = parts[1]
+                    if (parts.size >= 3) remotePort = parts[2].toIntOrNull() ?: 1194
+                }
+                "proto" -> if (parts.size >= 2) proto = parts[1].lowercase()
+                "dev" -> { /* ignore */ }
+            }
+        }
+        if (remoteHost.isBlank()) return null
+
+        // نحاول نجيب اسم من سطر # أو من أول remote
+        val commentName = content.lines().firstOrNull { it.trim().startsWith("#") }?.removePrefix("#")?.trim()
+        if (!commentName.isNullOrBlank()) name = commentName
+
+        return Server(
+            name = name,
+            protocol = "ovpn",
+            address = remoteHost,
+            port = remotePort,
+            network = "tcp",          // افتراضي، المستخدم يقدر يحولو لـ ws + payload
+            security = "none",
+            method = proto,           // نحفظ proto هنا (udp/tcp)
+            payload = ""
         )
     }
 }
