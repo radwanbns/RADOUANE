@@ -292,7 +292,9 @@ object LinkParser {
             network = "tcp",
             security = "none",
             method = proto,
-            payload = ""
+            payload = "",
+            // النص الكامل (شهادات/مفاتيح/tls-auth...) يُمرَّر كما هو إلى ics-openvpn
+            ovpnConfig = content.trim()
         )
     }
 }
