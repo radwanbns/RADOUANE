@@ -258,7 +258,26 @@ class XrayVpnService : VpnService() {
                 }
             }
         }
-        IcsOpenVpn.start(this, server)
+        var forwardPort = 0
+        if (server.usesPayloadForward) {
+            val fwd = OvpnTunnel(
+                server,
+                onFatal = { msg ->
+                    scope.launch {
+                        vpnMutex.withLock {
+                            if (state.value != VpnState.Disconnected) {
+                                lastError.value = msg
+                                stopVpn()
+                            }
+                        }
+                    }
+                },
+                onWarning = { msg -> lastError.value = msg }
+            )
+            forwardPort = fwd.startRawForward() // يرمي خطأ مفهوماً إن فشل البايلود/البروكسي/TLS
+            ovpnTunnel = fwd
+        }
+        IcsOpenVpn.start(this, server, forwardPort)
     }
 
     /** Stop only the tunnel; keep this foreground service alive for an immediate reconnect. */
