@@ -96,10 +96,13 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
     var invalid by remember { mutableStateOf(false) }
 
     val isSsh = server.protocol == "ssh"
+    val isOvpn = server.protocol == "ovpn"
+    val isPayloadProto = isSsh || isOvpn
     val streamBased = server.protocol in listOf("vmess", "vless", "trojan")
     val secretLabel = when (server.protocol) {
         "vmess", "vless" -> R.string.field_uuid
         "wireguard" -> R.string.field_key
+        "ovpn" -> R.string.field_password   // اختياري لـ OVPN
         else -> R.string.field_password
     }
     val currentMode = SSH_MODES.firstOrNull { it.second == Triple(sshTls, sshProxy, sshPayload) }?.first
@@ -127,13 +130,28 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(secret, { secret = it }, label = { Text(stringResource(secretLabel)) },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
-                if (isSsh) {
-                    ChipRow(stringResource(R.string.field_ssh_mode), SSH_MODES.map { it.first }, currentMode) { picked ->
-                        SSH_MODES.firstOrNull { it.first == picked }?.second?.let { (t, pr, pl) ->
-                            sshTls = t; sshProxy = pr; sshPayload = pl
+                if (isPayloadProto) {
+                    if (isSsh) {
+                        ChipRow(stringResource(R.string.field_ssh_mode), SSH_MODES.map { it.first }, currentMode) { picked ->
+                            SSH_MODES.firstOrNull { it.first == picked }?.second?.let { (t, pr, pl) ->
+                                sshTls = t; sshProxy = pr; sshPayload = pl
+                            }
+                        }
+                    } else {
+                        // أوضاع OVPN المبسطة
+                        ChipRow("Mode", listOf("Direct", "Payload", "TLS-Payload"), when {
+                            sshTls && sshPayload -> "TLS-Payload"
+                            sshPayload -> "Payload"
+                            else -> "Direct"
+                        }) { picked ->
+                            when (picked) {
+                                "Direct" -> { sshTls = false; sshPayload = false }
+                                "Payload" -> { sshTls = false; sshPayload = true }
+                                "TLS-Payload" -> { sshTls = true; sshPayload = true }
+                            }
                         }
                     }
-                    if (sshProxy) {
+                    if (sshProxy && isSsh) {
                         OutlinedTextField(proxyHost, { proxyHost = it }, label = { Text(stringResource(R.string.field_proxy_host)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) },
@@ -145,7 +163,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
-                    if (sshPayload) {
+                    if (sshPayload || isOvpn) {
                         OutlinedTextField(host, { host = it }, label = { Text("Host  →  [host]") },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(path, { path = it }, label = { Text("Path  →  [path]") },
@@ -219,8 +237,8 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     name = name.trim().ifBlank { server.name },
                     address = address.trim(), port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
                     secret = if (isSsh) secret else secret.trim(),
-                    network = if (isSsh) (if (sshPayload) "ws" else "tcp") else network,
-                    security = if (isSsh) (if (sshTls) "tls" else "none") else security,
+                    network = if (isPayloadProto) (if (sshPayload) "ws" else "tcp") else network,
+                    security = if (isPayloadProto) (if (sshTls) "tls" else "none") else security,
                     host = host.trim(),
                     sni = sni.trim(), path = path.trim(), fingerprint = fp.trim(), flow = flow.trim(),
                     insecure = insecure,
