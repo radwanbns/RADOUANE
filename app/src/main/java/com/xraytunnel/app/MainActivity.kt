@@ -779,6 +779,21 @@ fun MainScreen(vm: MainViewModel) {
                                 )
 
                                 DropdownMenuItem(
+                                    text = { Text("OpenVPN") },
+                                    onClick = {
+                                        addMenu = false
+                                        newServer = Server(
+                                            name = "OpenVPN",
+                                            protocol = "ovpn",
+                                            port = 443,
+                                            network = "ws",
+                                            security = "none",
+                                            payload = "GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: Websocket[crlf]Connection: Keep-Alive[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]"
+                                        )
+                                    }
+                                )
+
+                                DropdownMenuItem(
                                     text = { Text("VLESS") },
                                     onClick = {
                                         addMenu = false
@@ -1460,6 +1475,7 @@ private fun ServerRow(
 
 private fun Server.networkInfo(): String = buildString {
     if (protocol == "ssh") append("SSH · ")
+    if (protocol == "ovpn") append("OVPN · ")
     append(network.uppercase())
 
     if (security != "none") {
@@ -1471,6 +1487,7 @@ private fun protocolLabel(p: String) = when (p) {
     "shadowsocks" -> "SS"
     "hysteria2" -> "HY2"
     "ssh" -> "SSH"
+    "ovpn" -> "OVPN"
     "wireguard" -> "WG"
     else -> p.uppercase().take(6)
 }
@@ -1483,6 +1500,7 @@ private fun protocolColor(p: String) = when (p) {
     "hysteria2" -> Color(0xFFFBBF24)
     "wireguard" -> Color(0xFFFB7185)
     "ssh" -> Color(0xFF22D3EE)
+    "ovpn" -> Color(0xFF4ADE80)
     else -> Color(0xFF94A3B8)
 }
 
