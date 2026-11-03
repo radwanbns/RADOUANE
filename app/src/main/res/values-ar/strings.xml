@@ -77,6 +77,6 @@
     <string name="mode_payload">بايلود</string>
     <string name="mode_tls_payload">TLS-بايلود</string>
     <string name="field_ovpn_config">إعداد .ovpn (OpenVPN حقيقي)</string>
-    <string name="ovpn_real_hint">OpenVPN حقيقي عبر ics-openvpn: كل الترافيك يمر عبر نفق OpenVPN. يجب أن تكون الشهادات والمفاتيح مضمّنة داخل الملف.</string>
+    <string name="ovpn_real_hint">OpenVPN حقيقي عبر ics-openvpn. يجب تضمين الشهادات والمفاتيح داخل الملف. أوضاع Payload / WebSocket / Proxy / TLS أدناه مدعومة (تفرض TCP).</string>
     <string name="ovpn_legacy_hint">اتركه فارغاً لوضع Payload/WebSocket القديم (SOCKS وليس عميل OpenVPN حقيقياً).</string>
 </resources>
