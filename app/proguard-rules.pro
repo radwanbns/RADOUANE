@@ -13,3 +13,7 @@
 -dontwarn com.sun.jna.**
 -dontwarn org.apache.logging.log4j.**
 -dontwarn java.lang.management.**
+
+# ics-openvpn (OpenVPN for Android): JNI + reflection
+-keep class de.blinkt.openvpn.** { *; }
+-dontwarn de.blinkt.openvpn.**
