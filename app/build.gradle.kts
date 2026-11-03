@@ -52,4 +52,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-ads:23.6.0")
     // SSH client (fork مُحدَّث من JSch) لنفق SSH / SSH-WebSocket.
     implementation("com.github.mwiede:jsch:0.2.20")
+    // ics-openvpn (app/libs/ics-openvpn.aar) يعتمد على هذه المكتبات؛ الـ AAR لا يجلبها تلقائياً.
+    // إن اشتكى البناء من كلاس ناقص من androidx/kotlin أضف المكتبة المقابلة هنا.
+    implementation("androidx.annotation:annotation:1.8.2")
+    implementation("androidx.appcompat:appcompat:1.7.0")
 }
