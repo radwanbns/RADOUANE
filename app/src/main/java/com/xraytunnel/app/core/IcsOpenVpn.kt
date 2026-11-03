@@ -129,8 +129,8 @@ object IcsOpenVpn {
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 try {
-                    val svc = (binder as? OpenVPNService.LocalBinder)?.service as? IOpenVPNServiceInternal
-                    svc?.stopVPN(false)
+                    // الواجهة الحالية في ics-openvpn عبر AIDL (كما في DisconnectVPN)
+                    IOpenVPNServiceInternal.Stub.asInterface(binder)?.stopVPN(false)
                 } catch (_: Throwable) {
                 } finally {
                     try { app.unbindService(this) } catch (_: Throwable) {}
