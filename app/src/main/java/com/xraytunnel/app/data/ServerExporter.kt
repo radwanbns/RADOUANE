@@ -57,6 +57,7 @@ object ServerExporter {
                     "type" to s.network, "security" to s.security, "sni" to s.sni,
                     "host" to s.host, "path" to s.path, "payload" to s.payload,
                     "proto" to s.method.ifBlank { "tcp" },
+                    "proxy" to if (s.proxyHost.isNotBlank()) "${s.proxyHost}:${s.proxyPort}" else "",
                     "allowInsecure" to if (s.insecure) "1" else ""
                 )
                 val userInfo = when {
