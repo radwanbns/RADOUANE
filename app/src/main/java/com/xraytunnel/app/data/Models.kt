@@ -35,7 +35,8 @@ data class Server(
     val payload: String = "",      // SSH WS: بايلود HTTP مع [crlf] [host] [split] ...
     val proxyHost: String = "",    // SSH: HTTP proxy اختياري (SSH-Proxy)
     val proxyPort: Int = 8080,
-    val locked: Boolean = false    // سيرفر مستورد من ملف مقفل: مخفي، لا تعديل ولا مشاركة
+    val locked: Boolean = false,   // سيرفر مستورد من ملف مقفل: مخفي، لا تعديل ولا مشاركة
+    val ovpnConfig: String = ""    // OpenVPN الحقيقي: نص ملف .ovpn كاملاً (يُشغَّل عبر ics-openvpn)
 ) {
     /** سيرفرات الحافظة فقط (subId فارغ) قابلة للتعديل والحذف؛ سيرفرات التحديث مقفلة. */
     val isEditable: Boolean get() = subId.isBlank() && !locked
@@ -46,12 +47,16 @@ data class Server(
     /** يمكن حذفه: سيرفرات الحافظة والملفات (المقفلة وغير المقفلة). */
     val isDeletable: Boolean get() = subId.isBlank()
 
+    /** true = OpenVPN حقيقي عبر ics-openvpn (ملف .ovpn كامل)؛ false = نفق Payload القديم. */
+    val isRealOvpn: Boolean get() = protocol == "ovpn" && ovpnConfig.isNotBlank()
+
     /** Stable identity for duplicate detection across repeated subscription checks. */
     fun identityKey(): String = listOf(
         protocol, address, port.toString(), secret, method, flow, alterId.toString(),
         network, headerType, host, path, security, sni, fingerprint, alpn,
         insecure.toString(), publicKey, shortId, spiderX, obfsPassword,
-        localAddress, reserved, mtu.toString(), username, payload, proxyHost, proxyPort.toString()
+        localAddress, reserved, mtu.toString(), username, payload, proxyHost, proxyPort.toString(),
+        ovpnConfig
     ).joinToString("\u001f")
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -66,6 +71,7 @@ data class Server(
         put("username", username); put("payload", payload)
         put("proxyHost", proxyHost); put("proxyPort", proxyPort)
         put("locked", locked)
+        put("ovpnConfig", ovpnConfig)
     }
 
     companion object {
@@ -84,7 +90,8 @@ data class Server(
             localAddress = o.optString("localAddress"), reserved = o.optString("reserved"),
             mtu = o.optInt("mtu", 1280),
             username = o.optString("username"), payload = o.optString("payload"),
-            proxyHost = o.optString("proxyHost"), proxyPort = o.optInt("proxyPort", 8080), locked = o.optBoolean("locked", false)
+            proxyHost = o.optString("proxyHost"), proxyPort = o.optInt("proxyPort", 8080), locked = o.optBoolean("locked", false),
+            ovpnConfig = o.optString("ovpnConfig")
         )
     }
 }
