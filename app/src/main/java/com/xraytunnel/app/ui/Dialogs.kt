@@ -157,7 +157,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         // proto الحقيقي من ملف .ovpn (udp / tcp) — أي منفذ 1–65535 مدعوم
                         ChipRow(stringResource(R.string.field_proto), listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
                         // أوضاع OVPN المبسطة (نفق الـ payload)
-                        if (!realOvpn) {
+                        run {
                         val modeDirect = stringResource(R.string.mode_direct)
                         val modePayload = stringResource(R.string.mode_payload)
                         val modeTlsPayload = stringResource(R.string.mode_tls_payload)
@@ -175,7 +175,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         }
                     }
                     // بروكسي HTTP (SSH عند تفعيل الوضع، و OVPN دائماً فوق البايلود)
-                    if ((sshProxy && isSsh) || (isOvpn && !realOvpn)) {
+                    if ((sshProxy && isSsh) || isOvpn) {
                         OutlinedTextField(proxyHost, { proxyHost = it }, label = { Text(stringResource(R.string.field_proxy_host)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(proxyPort, { proxyPort = it.filter(Char::isDigit).take(5) },
@@ -187,7 +187,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         OutlinedTextField(sni, { sni = it }, label = { Text(stringResource(R.string.field_sni)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
-                    if (sshPayload || (isOvpn && !realOvpn)) {
+                    if (sshPayload || isOvpn) {
                         OutlinedTextField(host, { host = it }, label = { Text(stringResource(R.string.field_host_tag)) },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(path, { path = it }, label = { Text(stringResource(R.string.field_path_tag)) },
@@ -275,7 +275,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     fingerprint = fp.trim(),
                     flow = flow.trim(),
                     insecure = insecure,
-                    method = if (isOvpn) ovpnProto else server.method,
+                    // Payload/WebSocket/Proxy/TLS يعني TCP دائماً
+                    method = if (isOvpn) {
+                        if (realOvpn && (sshPayload || sshTls || proxyHost.isNotBlank())) "tcp" else ovpnProto
+                    } else server.method,
                     proxyHost = when {
                         isSsh && sshProxy -> proxyHost.trim()
                         isOvpn && proxyHost.isNotBlank() -> proxyHost.trim()
