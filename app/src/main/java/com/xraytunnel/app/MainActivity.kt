@@ -794,41 +794,12 @@ fun MainScreen(vm: MainViewModel) {
                                 )
 
                                 DropdownMenuItem(
-                                    text = { Text("VLESS") },
+                                    text = { Text("V2Ray") },
                                     onClick = {
                                         addMenu = false
                                         newServer = Server(
-                                            name = "VLESS",
+                                            name = "V2Ray",
                                             protocol = "vless",
-                                            port = 443,
-                                            network = "tcp",
-                                            security = "tls"
-                                        )
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("VMess") },
-                                    onClick = {
-                                        addMenu = false
-                                        newServer = Server(
-                                            name = "VMess",
-                                            protocol = "vmess",
-                                            port = 443,
-                                            method = "auto",
-                                            network = "ws",
-                                            security = "tls"
-                                        )
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("Trojan") },
-                                    onClick = {
-                                        addMenu = false
-                                        newServer = Server(
-                                            name = "Trojan",
-                                            protocol = "trojan",
                                             port = 443,
                                             network = "tcp",
                                             security = "tls"
@@ -1475,8 +1446,19 @@ private fun ServerRow(
 
 private fun Server.networkInfo(): String = buildString {
     if (protocol == "ssh") append("SSH · ")
-    if (protocol == "ovpn") append("OVPN · ")
-    append(network.uppercase())
+    if (protocol == "ovpn") {
+        append("OVPN · ")
+        // proto الأصلي من ملف .ovpn (udp/tcp) محفوظ في method
+        val proto = method.lowercase().takeIf { it == "udp" || it == "tcp" }
+        if (proto != null) {
+            append(proto.uppercase())
+            if (network == "ws") append(" · WS")
+        } else {
+            append(network.uppercase())
+        }
+    } else {
+        append(network.uppercase())
+    }
 
     if (security != "none") {
         append(" · ").append(security.uppercase())
