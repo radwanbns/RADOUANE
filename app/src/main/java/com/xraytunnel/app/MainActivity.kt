@@ -765,7 +765,7 @@ fun MainScreen(vm: MainViewModel) {
                                 )
 
                                 DropdownMenuItem(
-                                    text = { Text("SSH") },
+                                    text = { Text(stringResource(R.string.protocol_ssh)) },
                                     onClick = {
                                         addMenu = false
                                         newServer = Server(
@@ -779,7 +779,7 @@ fun MainScreen(vm: MainViewModel) {
                                 )
 
                                 DropdownMenuItem(
-                                    text = { Text("OpenVPN") },
+                                    text = { Text(stringResource(R.string.protocol_openvpn)) },
                                     onClick = {
                                         addMenu = false
                                         newServer = Server(
@@ -794,7 +794,7 @@ fun MainScreen(vm: MainViewModel) {
                                 )
 
                                 DropdownMenuItem(
-                                    text = { Text("V2Ray") },
+                                    text = { Text(stringResource(R.string.protocol_v2ray)) },
                                     onClick = {
                                         addMenu = false
                                         newServer = Server(
@@ -946,13 +946,13 @@ fun MainScreen(vm: MainViewModel) {
                         exportFile(listOf(srv), locked = false)
                     }
 
-                    ShareOption("JSON", null) {
+                    ShareOption(stringResource(R.string.share_json), null) {
                         shareFor = null
                         hostActivity?.suppressAppOpen = true
                         shareText(ctx, ServerExporter.toJson(srv), "JSON · ${srv.name}")
                     }
 
-                    ShareOption("URI", null) {
+                    ShareOption(stringResource(R.string.share_uri), null) {
                         shareFor = null
                         val uri = ServerExporter.toUri(srv)
 
