@@ -49,6 +49,7 @@
     <string name="telegram_channel">Telegram channel</string>
     <string name="youtube_channel">YouTube channel</string>
     <string name="field_username">SSH username</string>
+    <string name="field_username_optional">Username (optional)</string>
     <string name="field_ssh_mode">SSH mode</string>
     <string name="field_proxy_host">HTTP proxy (host)</string>
     <string name="field_proxy_port">Proxy port</string>
@@ -56,4 +57,23 @@
     <string name="field_payload">Payload</string>
     <string name="payload_hint">[crlf] [cr] [lf] [host] [host_port] [port] [path] [sni] [protocol] [ua] [ws_key] [split]</string>
     <string name="ssh_required">Server address and a valid port (1–65535) are required (plus username for SSH, and proxy host/port in proxy modes)</string>
+    <string name="field_address">Address (Server)</string>
+    <string name="field_host_ws">Host (WS / HTTP)</string>
+    <string name="field_host_tag">Host  →  [host]</string>
+    <string name="field_path_tag">Path  →  [path]</string>
+    <string name="field_port">Port</string>
+    <string name="field_protocol">Protocol</string>
+    <string name="field_proto">Proto (UDP/TCP)</string>
+    <string name="field_mode">Mode</string>
+    <string name="field_sni">SNI</string>
+    <string name="field_fingerprint">Fingerprint</string>
+    <string name="field_flow">Flow</string>
+    <string name="protocol_ssh">SSH</string>
+    <string name="protocol_openvpn">OpenVPN</string>
+    <string name="protocol_v2ray">V2Ray</string>
+    <string name="share_json">JSON</string>
+    <string name="share_uri">URI</string>
+    <string name="mode_direct">Direct</string>
+    <string name="mode_payload">Payload</string>
+    <string name="mode_tls_payload">TLS-Payload</string>
 </resources>
