@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""يحوّل موديول :main في ics-openvpn من application إلى library حتى ينتج AAR.
+يُشغَّل من جذر مستودع ics-openvpn. يطبع الملف الأصلي والمعدّل في السجل للتشخيص."""
+import glob
+import re
+import sys
+
+paths = glob.glob("main/build.gradle.kts") + glob.glob("main/build.gradle")
+if not paths:
+    sys.exit("main/build.gradle(.kts) not found")
+path = paths[0]
+kts = path.endswith(".kts")
+src = open(path, encoding="utf-8").read()
+
+print("=" * 20, "ORIGINAL", path, "=" * 20)
+print(src)
+
+lib = 'id("com.android.library")' if kts else "id 'com.android.library'"
+s = src
+
+# 1) المكوّن الإضافي: id / alias / apply plugin
+s = re.sub(r"""id\s*\(?\s*["']com\.android\.application["']\s*\)?""", lib, s)
+s = re.sub(r"""alias\s*\(?\s*libs\.plugins\.[\w.]*application[\w.]*\s*\)?""", lib, s)
+s = re.sub(r"""apply\s+plugin\s*:\s*["']com\.android\.application["']""",
+           "apply plugin: 'com.android.library'", s)
+
+
+# 2) كتل خاصة بالتطبيقات فقط (غير مسموحة في المكتبات)
+def remove_block(text: str, name: str) -> str:
+    pat = re.compile(r"^[ \t]*" + name + r"\s*(?:=\s*)?\{", re.M)
+    while True:
+        m = pat.search(text)
+        if not m:
+            return text
+        depth, i = 0, m.end() - 1
+        while i < len(text):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        end = i + 1
+        if end < len(text) and text[end] == "\n":
+            end += 1
+        text = text[: m.start()] + text[end:]
+
+
+for blk in ("signingConfigs", "splits", "dependenciesInfo", "bundle"):
+    s = remove_block(s, blk)
+
+# 3) أسطر التوقيع ومعرّف التطبيق
+s = re.sub(r"^.*\b(applicationId|applicationIdSuffix|testApplicationId|signingConfig)\b.*\n",
+           "", s, flags=re.M)
+
+# 4) متغيرات التطبيق -> المكتبة
+s = s.replace("applicationVariants", "libraryVariants")
+
+if s == src:
+    sys.exit("PATCH DID NOT CHANGE ANYTHING: check the ORIGINAL printed above")
+if "com.android.library" not in s:
+    sys.exit("library plugin not applied: check the ORIGINAL printed above")
+
+open(path, "w", encoding="utf-8").write(s)
+print("=" * 20, "PATCHED", path, "=" * 20)
+print(s)
