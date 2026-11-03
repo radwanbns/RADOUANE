@@ -94,12 +94,16 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
     var sshProxy by remember { mutableStateOf(server.proxyHost.isNotBlank()) }
     var sshPayload by remember { mutableStateOf(server.network == "ws") }
     var invalid by remember { mutableStateOf(false) }
+    // بروتوكول V2Ray قابل للتغيير داخل الحوار
+    var protocol by remember { mutableStateOf(server.protocol) }
+    // proto الأصلي لـ OpenVPN (udp/tcp) محفوظ في method
+    var ovpnProto by remember { mutableStateOf(server.method.takeIf { it == "udp" || it == "tcp" } ?: "tcp") }
 
-    val isSsh = server.protocol == "ssh"
-    val isOvpn = server.protocol == "ovpn"
+    val isSsh = protocol == "ssh"
+    val isOvpn = protocol == "ovpn"
     val isPayloadProto = isSsh || isOvpn
-    val streamBased = server.protocol in listOf("vmess", "vless", "trojan")
-    val secretLabel = when (server.protocol) {
+    val streamBased = protocol in listOf("vmess", "vless", "trojan")
+    val secretLabel = when (protocol) {
         "vmess", "vless" -> R.string.field_uuid
         "wireguard" -> R.string.field_key
         "ovpn" -> R.string.field_password   // اختياري لـ OVPN
@@ -118,12 +122,15 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                 OutlinedTextField(address, { address = it }, label = { Text("Address (Server)") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (streamBased) {
+                    // اختيار نوع V2Ray: VLESS / VMess / Trojan
+                    ChipRow("Protocol", listOf("vless", "vmess", "trojan"), protocol) { protocol = it }
                     OutlinedTextField(host, { host = it }, label = { Text("Host (WS / HTTP)") },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
-                if (isSsh) {
-                    OutlinedTextField(username, { username = it }, label = { Text(stringResource(R.string.field_username)) },
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (isSsh || isOvpn) {
+                    OutlinedTextField(username, { username = it }, label = {
+                        Text(if (isOvpn) "Username (optional)" else stringResource(R.string.field_username))
+                    }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
                 OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) },
                     label = { Text("Port") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -138,7 +145,9 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             }
                         }
                     } else {
-                        // أوضاع OVPN المبسطة
+                        // proto الحقيقي من ملف .ovpn (udp / tcp)
+                        ChipRow("Proto (UDP/TCP)", listOf("udp", "tcp"), ovpnProto) { ovpnProto = it }
+                        // أوضاع OVPN المبسطة (نفق الـ payload)
                         ChipRow("Mode", listOf("Direct", "Payload", "TLS-Payload"), when {
                             sshTls && sshPayload -> "TLS-Payload"
                             sshPayload -> "Payload"
@@ -202,10 +211,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                             Text(stringResource(R.string.field_allow_insecure))
                         }
                     }
-                    if (server.protocol == "vless")
+                    if (protocol == "vless")
                         OutlinedTextField(flow, { flow = it }, label = { Text("Flow") },
                             singleLine = true, modifier = Modifier.fillMaxWidth())
-                } else if (server.protocol == "hysteria2") {
+                } else if (protocol == "hysteria2") {
                     OutlinedTextField(sni, { sni = it }, label = { Text("SNI") },
                         singleLine = true, modifier = Modifier.fillMaxWidth())
                     Row(
@@ -233,15 +242,22 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     return@Button
                 }
                 onSave(server.copy(
-                    username = username.trim(), payload = payload,
+                    protocol = protocol,
+                    username = username.trim(),
+                    payload = payload,
                     name = name.trim().ifBlank { server.name },
-                    address = address.trim(), port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
+                    address = address.trim(),
+                    port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
                     secret = if (isSsh) secret else secret.trim(),
                     network = if (isPayloadProto) (if (sshPayload) "ws" else "tcp") else network,
                     security = if (isPayloadProto) (if (sshTls) "tls" else "none") else security,
                     host = host.trim(),
-                    sni = sni.trim(), path = path.trim(), fingerprint = fp.trim(), flow = flow.trim(),
+                    sni = sni.trim(),
+                    path = path.trim(),
+                    fingerprint = fp.trim(),
+                    flow = flow.trim(),
                     insecure = insecure,
+                    method = if (isOvpn) ovpnProto else server.method,
                     proxyHost = if (isSsh && sshProxy) proxyHost.trim() else "",
                     proxyPort = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
                 ))
