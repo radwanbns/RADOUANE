@@ -59,6 +59,37 @@ APP_ONLY = (
 )
 s = re.sub(r"^[ \t]*(?:" + APP_ONLY + r")\b.*\n", "", s, flags=re.M)
 
+
+
+def remove_signing_refs(text: str) -> str:
+    """يحذف أي سطر يذكر signingConfig/signingConfigs في أي موضع؛ وإن كان السطر يفتح كتلة
+    ({ بلا } مقابلة) يحذف الكتلة كلها حتى لا تختل الأقواس."""
+    pat = re.compile(r"^.*\bsigningConfigs?\b.*$", re.M)
+    while True:
+        m = pat.search(text)
+        if not m:
+            return text
+        line = m.group(0)
+        net = line.count("{") - line.count("}")
+        end = m.end()
+        if net > 0:
+            depth, i = 0, m.start()
+            while i < len(text):
+                if text[i] == "{" and i >= m.start():
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth <= 0 and i >= m.end() - 1:
+                        break
+                i += 1
+            end = i + 1
+        if end < len(text) and text[end] == "\n":
+            end += 1
+        text = text[: m.start()] + text[end:]
+
+
+s = remove_signing_refs(s)
+
 # 4) متغيرات التطبيق -> المكتبة
 s = s.replace("applicationVariants", "libraryVariants")
 
