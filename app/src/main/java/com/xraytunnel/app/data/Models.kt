@@ -50,6 +50,13 @@ data class Server(
     /** true = OpenVPN حقيقي عبر ics-openvpn (ملف .ovpn كامل)؛ false = نفق Payload القديم. */
     val isRealOvpn: Boolean get() = protocol == "ovpn" && ovpnConfig.isNotBlank()
 
+    /**
+     * OpenVPN حقيقي مع Payload/WebSocket أو بروكسي HTTP أو TLS-wrapper:
+     * يُشغَّل مُمرِّر TCP محلي يحقن البايلود ثم يمرّر بايتات OpenVPN الخام (TCP فقط).
+     */
+    val usesPayloadForward: Boolean get() = isRealOvpn &&
+        (network == "ws" || payload.isNotBlank() || proxyHost.isNotBlank() || security == "tls")
+
     /** Stable identity for duplicate detection across repeated subscription checks. */
     fun identityKey(): String = listOf(
         protocol, address, port.toString(), secret, method, flow, alterId.toString(),
