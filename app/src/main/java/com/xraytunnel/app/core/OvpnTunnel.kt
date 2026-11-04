@@ -232,12 +232,12 @@ class OvpnTunnel(
 
     // ---------------------------------------------------------------- إنشاء الاتصال + Payload
     /**
-     * يبني الوصلة الخام التي يمر عليها OpenVPN:
-     * TCP → [HTTP Proxy CONNECT (أي منفذ)] → [TLS + SNI] → [بايلود / WebSocket] → بايتات OpenVPN.
+     * يبني الوصلة الخام التي يمر عليها OpenVPN (أسلوب HTTP Custom القديمة):
      *
-     * نفس أسلوب HTTP Custom القديم:
-     * - البروكسي يستخدم CONNECT قياسي دائماً (يدعم كل المنافذ 1–65535) ما لم يكن البايلود نفسه طلب CONNECT.
-     * - بعد نجاح البروكسي (وTLS إن وُجد) يُرسل بايلود WebSocket/المخصص ثم يُمرَّر الترافيك الخام.
+     * 1) بروكسي + بايلود  → نرسل البايلود مباشرة إلى البروكسي (مثل ofr.ratech.qzz.io)
+     * 2) بروكسي فقط       → CONNECT قياسي إلى عنوان:منفذ OpenVPN (كل المنافذ)
+     * 3) بايلود فقط        → نرسل البايلود إلى السيرفر ثم نمرّر OpenVPN
+     * 4) TLS               → بعد الخطوة السابقة إن وُجد
      */
     private fun createEndpoint(): Endpoint {
         val payloadOn = server.network == "ws" || server.payload.isNotBlank()
@@ -261,17 +261,16 @@ class OvpnTunnel(
         var output: OutputStream = raw.getOutputStream()
         var input: InputStream = raw.getInputStream()
 
-        // هل البايلود نفسه طلب CONNECT مخصص للبروكسي؟
-        val payloadIsConnect = server.payload.isNotBlank() &&
-            server.payload.contains("CONNECT", ignoreCase = true)
-
         if (useProxy) {
-            // 1) طلب البروكسي: CONNECT قياسي (أي منفذ) أو بايلود يحتوي CONNECT
             val pin = PushbackInputStream(raw.getInputStream(), 8192)
-            if (payloadIsConnect) {
+
+            if (payloadOn) {
+                // الحالة الشائعة في HTTP Custom: البايلود يُرسل مباشرة إلى البروكسي
+                // (مثال: Host: ofr.ratech.qzz.io + Upgrade: websocket)
                 sendPayload(output, forProxy = true)
+                readHttpResponse(pin)
             } else {
-                // CONNECT قياسي — يدعم جميع المنافذ (مثل HTTP Custom)
+                // بروكسي بدون بايلود → CONNECT قياسي لأي منفذ
                 val hostPort = if (server.address.contains(":")) {
                     "[${server.address}]:$targetPort"
                 } else {
@@ -284,10 +283,9 @@ class OvpnTunnel(
                     "Connection: Keep-Alive\r\n\r\n"
                 output.write(connectReq.toByteArray(Charsets.UTF_8))
                 output.flush()
+                readHttpResponse(pin)
             }
-            readHttpResponse(pin)
 
-            // 2) TLS فوق نفق البروكسي (إن طُلب)
             if (tlsOn) {
                 sock = wrapTls(raw)
                 output = sock.getOutputStream()
@@ -295,17 +293,8 @@ class OvpnTunnel(
             } else {
                 input = pin
             }
-
-            // 3) بايلود/WebSocket بعد نجاح البروكسي (+TLS) — هذا كان مفقوداً سابقاً
-            if (payloadOn && !payloadIsConnect) {
-                val pin2 = if (input is PushbackInputStream) input
-                           else PushbackInputStream(input, 8192)
-                sendPayload(output, forProxy = false)
-                readHttpResponse(pin2)
-                input = pin2
-            }
         } else {
-            // بدون بروكسي: [TLS] ثم [بايلود/WS]
+            // بدون بروكسي
             if (tlsOn) {
                 sock = wrapTls(raw)
                 output = sock.getOutputStream()
@@ -402,18 +391,55 @@ class OvpnTunnel(
         return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
+    /**
+     * يقرأ ترويسة رد HTTP إن وُجدت فقط.
+     * مهم جداً: إذا السيرفر أرسل بايتات OpenVPN مباشرة (بدون رد HTTP)
+     * لا نستهلكها — نعيدها إلى الـ stream عبر unread حتى يراها OpenVPN.
+     * هذا السلوك يطابق HTTP Custom القديمة.
+     */
     private fun readHttpResponse(pin: PushbackInputStream) {
-        val sb = StringBuilder()
-        val buf = ByteArray(1)
-        while (true) {
-            val n = pin.read(buf)
-            if (n <= 0) break
-            sb.append(buf[0].toInt().toChar())
-            val s = sb.toString()
-            if (s.endsWith("\r\n\r\n") || s.endsWith("\n\n")) break
-            if (sb.length > 8192) break
+        try {
+            // مهلة قصيرة جداً (1.5 ثانية) لانتظار رد HTTP
+            val deadline = System.currentTimeMillis() + 1500L
+            val first = ByteArray(8)
+            var got = 0
+
+            while (got < 4 && System.currentTimeMillis() < deadline) {
+                val avail = try { pin.available() } catch (_: Exception) { 0 }
+                if (avail <= 0) {
+                    Thread.sleep(20)
+                    continue
+                }
+                val n = pin.read(first, got, first.size - got)
+                if (n <= 0) break
+                got += n
+            }
+
+            if (got == 0) return // لا رد — نكمل مباشرة (بعض السيرفرات لا ترد)
+
+            // هل يبدأ بـ "HTTP" ؟
+            val head = String(first, 0, got, Charsets.ISO_8859_1)
+            if (!head.startsWith("HTTP", ignoreCase = true)) {
+                // بايتات OpenVPN أو بيانات ثنائية → نعيدها كلها
+                pin.unread(first, 0, got)
+                return
+            }
+
+            // رد HTTP حقيقي: نكمل قراءة الترويسة حتى \r\n\r\n
+            val sb = StringBuilder(head)
+            val buf = ByteArray(1)
+            while (System.currentTimeMillis() < deadline + 2000L) {
+                val n = pin.read(buf)
+                if (n <= 0) break
+                sb.append(buf[0].toInt().toChar())
+                val s = sb.toString()
+                if (s.endsWith("\r\n\r\n") || s.endsWith("\n\n")) break
+                if (sb.length > 8192) break
+            }
+            // لا نتحقق من كود الحالة (200 أو 101 مقبولان)
+        } catch (_: Exception) {
+            // نتجاهل أي خطأ — نفضّل المتابعة على الفشل
         }
-        // ما كنتحققوش من 101، بعض السيرفرات كترجع 200 أو ما كترجعش رد واضح
     }
 
     private fun pipe(input: InputStream, output: OutputStream) {
