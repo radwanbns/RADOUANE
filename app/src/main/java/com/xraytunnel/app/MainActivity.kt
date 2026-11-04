@@ -1,3 +1,4 @@
+
 package com.xraytunnel.app
 
 import android.Manifest
@@ -17,6 +18,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.LayoutDirection
+import com.xraytunnel.app.core.ConnLog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -349,6 +356,15 @@ fun MainScreen(vm: MainViewModel) {
     val updating by vm.updating.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val error by XrayVpnService.lastError.collectAsStateWithLifecycle()
+    val connLines by ConnLog.lines.collectAsStateWithLifecycle()
+    var showLog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        when (state) {
+            VpnState.Connecting -> showLog = true
+            VpnState.Connected -> { kotlinx.coroutines.delay(5000); showLog = false }
+            else -> {}
+        }
+    }
 
     val snack = remember { SnackbarHostState() }
     val uiScope = rememberCoroutineScope()
@@ -370,6 +386,19 @@ fun MainScreen(vm: MainViewModel) {
         while (true) {
             remainingCredit = TimeCredit.remaining(ctx)
             delay(1000L)
+        }
+    }
+
+    // شريط "Xray Tunnel Connected" بنفس شكل ولون "Update Success" عند انتقال الحالة إلى متصل
+    var prevVpnState by remember { mutableStateOf(state) }
+    LaunchedEffect(state) {
+        val justConnected = state == VpnState.Connected && prevVpnState == VpnState.Connecting
+        prevVpnState = state
+        if (justConnected) {
+            val text = ctx.getString(R.string.tunnel_connected)
+            updateBanner = text
+            delay(3000)
+            if (updateBanner == text) updateBanner = null
         }
     }
 
@@ -694,6 +723,27 @@ fun MainScreen(vm: MainViewModel) {
 
                     // 1. VPN CONNECT BUTTON AT THE TOP.
                     Hero(state, selected?.name, remainingCredit, ::watchReward, ::toggle)
+
+                    // سجل الاتصال: يظهر تلقائياً أثناء الاتصال، ويبقى عند الفشل لقراءة السبب
+                    if (connLines.isNotEmpty()) {
+                        if (showLog) {
+                            ConnLogPanel(
+                                state = state,
+                                lines = connLines,
+                                onCopy = {
+                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("connection log", ConnLog.asText()))
+                                    Toast.makeText(ctx, ctx.getString(R.string.conn_log_copied), Toast.LENGTH_SHORT).show()
+                                },
+                                onClear = { ConnLog.clear() },
+                                onHide = { showLog = false }
+                            )
+                        } else {
+                            TextButton(onClick = { showLog = true }) {
+                                Text(stringResource(R.string.conn_log_show))
+                            }
+                        }
+                    }
 
                     // 3. SERVER LIST HEADER AND UPDATE BUTTON.
                     Row(
@@ -1530,4 +1580,101 @@ private fun shareText(
     context.startActivity(
         Intent.createChooser(send, title)
     )
+}
+
+
+// ----------------------------------------------------------------
+// CONNECTION LOG PANEL
+// ----------------------------------------------------------------
+
+@Composable
+private fun ConnLogPanel(
+    state: VpnState,
+    lines: List<ConnLog.Line>,
+    onCopy: () -> Unit,
+    onClear: () -> Unit,
+    onHide: () -> Unit
+) {
+    val scroll = rememberScrollState()
+    LaunchedEffect(lines.size) {
+        kotlinx.coroutines.delay(30)
+        scroll.animateScrollTo(scroll.maxValue)
+    }
+    val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
+
+    val bg = Color(0xFF0F172A)
+    val dim = Color(0xFF64748B)
+    val dot = when (state) {
+        VpnState.Connected -> ConnectedGreen
+        VpnState.Connecting -> ConnectingAmber
+        else -> dim
+    }
+
+    // السجل تقني: نثبّت الاتجاه LTR ليبقى الترتيب (وقت ثم رسالة) واضحاً
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = bg,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp)
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.conn_log_title),
+                        color = Color(0xFFE2E8F0),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(stringResource(R.string.conn_log_copy), color = Color(0xFF93C5FD), fontSize = 12.sp)
+                    }
+                    TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text(stringResource(R.string.conn_log_clear), color = Color(0xFF93C5FD), fontSize = 12.sp)
+                    }
+                    IconButton(onClick = onHide, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF94A3B8))
+                    }
+                }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(scroll)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        lines.forEach { l ->
+                            val color = when (l.level) {
+                                ConnLog.Level.OK -> Color(0xFF34D399)
+                                ConnLog.Level.WARN -> Color(0xFFFBBF24)
+                                ConnLog.Level.ERROR -> Color(0xFFF87171)
+                                ConnLog.Level.DEBUG -> dim
+                                ConnLog.Level.INFO -> Color(0xFFCBD5E1)
+                            }
+                            Row {
+                                Text(
+                                    fmt.format(java.util.Date(l.time)),
+                                    color = dim,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    l.text,
+                                    color = color,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
