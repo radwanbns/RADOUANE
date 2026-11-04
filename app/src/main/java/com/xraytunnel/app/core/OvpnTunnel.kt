@@ -14,6 +14,8 @@ import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SNIServerName
 import javax.net.ssl.SSLContext
@@ -43,6 +45,18 @@ class OvpnTunnel(
 
     private val TAG = "OvpnTunnel"
     private val closed = AtomicBoolean(false)
+
+    // ---- تشخيص (يُعرض في الواجهة عند تعلّق الاتصال) ----
+    private val rawClients = AtomicInteger(0)
+    private val bytesUp = AtomicLong(0)     // OpenVPN -> السيرفر
+    private val bytesDown = AtomicLong(0)   // السيرفر -> OpenVPN
+    private val statusLines = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    fun diagnostics(): String {
+        val lines = statusLines.toList().takeLast(4).joinToString(" | ").ifBlank { "لا ردود HTTP" }
+        return "الممرّر: اتصالات OpenVPN=${rawClients.get()}، ردود=[$lines]، " +
+            "↑${bytesUp.get()}B ↓${bytesDown.get()}B"
+    }
     private var listener: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r ->
         Thread(r, "ovpn-tunnel").apply { isDaemon = true }
@@ -115,6 +129,7 @@ class OvpnTunnel(
     /** تمرير خام: client(OpenVPN) <-> [payload/proxy/TLS] <-> السيرفر. يُغلَق الطرفان عند انتهاء أي اتجاه. */
     private fun handleRawClient(client: Socket) {
         var remote: Socket? = null
+        rawClients.incrementAndGet()
         try {
             client.tcpNoDelay = true
             val ep = createEndpoint()
@@ -122,8 +137,8 @@ class OvpnTunnel(
             val done = java.util.concurrent.CountDownLatch(1)
             val cin = client.getInputStream()
             val cout = client.getOutputStream()
-            Thread { try { pipe(cin, ep.output) } finally { done.countDown() } }.apply { isDaemon = true }.start()
-            Thread { try { pipe(ep.input, cout) } finally { done.countDown() } }.apply { isDaemon = true }.start()
+            Thread { try { pipe(cin, ep.output, bytesUp) } finally { done.countDown() } }.apply { isDaemon = true }.start()
+            Thread { try { pipe(ep.input, cout, bytesDown) } finally { done.countDown() } }.apply { isDaemon = true }.start()
             done.await()
         } catch (e: Exception) {
             if (!closed.get()) Log.d(TAG, "raw client: ${e.message}")
@@ -386,6 +401,7 @@ class OvpnTunnel(
             }
             if (head.isEmpty()) break
             n++
+            statusLines.add(head.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
             val status = Regex("^HTTP/\\S+\\s+(\\d{3})").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             if (status == 101) break
             val len = Regex("(?im)^content-length:\\s*(\\d+)").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -418,12 +434,13 @@ class OvpnTunnel(
         }
     }
 
-    private fun pipe(input: InputStream, output: OutputStream) {
+    private fun pipe(input: InputStream, output: OutputStream, counter: AtomicLong? = null) {
         val buffer = ByteArray(8192)
         try {
             while (!closed.get()) {
                 val r = input.read(buffer)
                 if (r == -1) break
+                counter?.addAndGet(r.toLong())
                 output.write(buffer, 0, r)
                 output.flush()
             }
