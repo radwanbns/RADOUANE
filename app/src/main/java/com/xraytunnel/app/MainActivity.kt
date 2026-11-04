@@ -1,4 +1,3 @@
-
 package com.xraytunnel.app
 
 import android.Manifest
@@ -393,7 +392,14 @@ fun MainScreen(vm: MainViewModel) {
     }
 
     LaunchedEffect(error) {
-        error?.let { snack.showSnackbar(it) }
+        error?.let {
+            val long = it.length > 80 // رسائل التشخيص الطويلة تبقى حتى يغلقها المستخدم
+            snack.showSnackbar(
+                it,
+                withDismissAction = long,
+                duration = if (long) SnackbarDuration.Indefinite else SnackbarDuration.Short
+            )
+        }
     }
 
     // Show one interstitial after successful VPN connection.
