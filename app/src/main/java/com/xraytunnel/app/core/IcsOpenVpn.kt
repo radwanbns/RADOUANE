@@ -63,29 +63,15 @@ object IcsOpenVpn {
         if (server.username.isNotBlank()) profile.mUsername = server.username
         if (server.secret.isNotBlank()) profile.mPassword = server.secret
 
-        if (forwardPort > 0) {
-            // Payload/WebSocket/Proxy: كل الاتصالات تذهب للمُمرِّر المحلي فقط (TCP)
-            // ونزيل أي http-proxy موجود في ملف .ovpn حتى لا يتعارض
-            for (c in profile.mConnections) {
+        // تعديلات المستخدم على العنوان/المنفذ/البروتوكول تُطبَّق على أول remote
+        profile.mConnections.firstOrNull()?.let { c ->
+            if (forwardPort > 0) {
+                // Payload/WebSocket/Proxy: OpenVPN يتصل بالمُمرِّر المحلي (TCP) والمُمرِّر يتصل بالسيرفر
                 c.mServerName = "127.0.0.1"
                 c.mServerPort = forwardPort.toString()
                 c.mUseUdp = false
                 c.mProxyType = Connection.ProxyType.NONE
-                try { c.mProxyName = null } catch (_: Throwable) {}
-                try { c.mProxyPort = null } catch (_: Throwable) {}
-            }
-            // احتياطي إن كانت القائمة فارغة
-            if (profile.mConnections.isEmpty()) {
-                val c = Connection()
-                c.mServerName = "127.0.0.1"
-                c.mServerPort = forwardPort.toString()
-                c.mUseUdp = false
-                c.mProxyType = Connection.ProxyType.NONE
-                profile.mConnections = arrayOf(c)
-            }
-        } else {
-            // تعديلات المستخدم على العنوان/المنفذ/البروتوكول تُطبَّق على أول remote
-            profile.mConnections.firstOrNull()?.let { c ->
+            } else {
                 if (server.address.isNotBlank()) c.mServerName = server.address
                 if (server.port in 1..65535) c.mServerPort = server.port.toString()
                 when (server.method) {
