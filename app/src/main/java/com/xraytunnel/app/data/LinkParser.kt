@@ -200,6 +200,19 @@ object LinkParser {
         val proxyPort = if (proxy.contains(":"))
             proxy.substringAfterLast(":").toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
         else 8080
+        val configB64 = q("config").ifBlank { q("ovpn") }
+        val ovpnCfg = if (configB64.isNotBlank()) {
+            try {
+                val flags = Base64.NO_WRAP or Base64.URL_SAFE
+                String(Base64.decode(configB64, flags), Charsets.UTF_8).trim()
+            } catch (_: Exception) {
+                try {
+                    String(Base64.decode(configB64, Base64.DEFAULT), Charsets.UTF_8).trim()
+                } catch (_: Exception) {
+                    ""
+                }
+            }
+        } else ""
         return Server(
             name = u.fragment?.takeIf { it.isNotBlank() } ?: "OpenVPN",
             protocol = "ovpn",
@@ -216,7 +229,8 @@ object LinkParser {
             method = proto,
             proxyHost = proxyHost,
             proxyPort = proxyPort,
-            insecure = q("allowInsecure") == "1" || q("insecure") == "1"
+            insecure = q("allowInsecure") == "1" || q("insecure") == "1",
+            ovpnConfig = ovpnCfg
         )
     }
 
