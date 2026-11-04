@@ -57,7 +57,7 @@ class SshTunnel(
         try {
             if (server.username.isBlank()) throw TunnelException("SSH username is empty.")
             if (server.address.isBlank()) throw TunnelException("SSH server address is empty.")
-            if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
+            if (server.port !in 1..65535) throw TunnelException("Invalid port.")
             session = connectSession()
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
             listener = ss
@@ -268,21 +268,21 @@ class SshTunnel(
             return when {
                 root is TunnelException -> root.message.orEmpty()
                 all.contains("Auth fail", true) || all.contains("Auth cancel", true) ->
-                    "فشل تسجيل الدخول SSH: اسم المستخدم أو كلمة المرور غير صحيحة."
+                    "SSH login failed: incorrect username or password."
                 root is UnknownHostException ->
-                    if (hide) "تعذر الوصول إلى عنوان السيرفر." else "تعذر الوصول إلى عنوان السيرفر: ${server.address}"
+                    if (hide) "Could not reach the server address." else "Could not reach the server address: ${server.address}"
                 root is ConnectException || all.contains("refused", true) ->
-                    if (server.proxyHost.isNotBlank()) "رفض البروكسي الاتصال. تحقق من عنوان ومنفذ البروكسي." else if (hide) "رفض السيرفر الاتصال." else "رفض السيرفر الاتصال على المنفذ ${server.port}."
+                    if (server.proxyHost.isNotBlank()) "The proxy refused the connection. Check the proxy address and port." else if (hide) "The server refused the connection." else "The server refused the connection on port ${server.port}."
                 root is SocketTimeoutException || all.contains("timeout", true) || all.contains("timed out", true) ->
-                    "انتهت مهلة الاتصال بسيرفر SSH. تحقق من العنوان والمنفذ والبايلود."
+                    "SSH server connection timed out. Check the address, port and payload."
                 root is SSLException ->
-                    if (hide) "فشل TLS: تعذر إكمال المصافحة." else "فشل TLS: ${root.message ?: "تعذر إكمال المصافحة"}"
+                    if (hide) "TLS failed: could not complete the handshake." else "TLS failed: ${root.message ?: "could not complete the handshake"}"
                 all.contains("Algorithm negotiation fail", true) ->
-                    "فشل التفاوض على خوارزميات SSH (السيرفر غير متوافق)."
+                    "SSH algorithm negotiation failed (incompatible server)."
                 all.contains("invalid server's version string", true) || all.contains("Connection reset", true) ||
                     all.contains("End of IO Stream", true) ->
-                    "السيرفر لم يرد ببروتوكول SSH. تأكد من النمط (TCP/WS) والبايلود والمنفذ."
-                hide -> "فشل اتصال SSH (${root.javaClass.simpleName})."
+                    "The server did not respond with the SSH protocol. Check the mode (TCP/WS), payload and port."
+                hide -> "SSH connection failed (${root.javaClass.simpleName})."
                 else -> e.message ?: e.javaClass.simpleName
             }
         }
@@ -391,7 +391,7 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
 
         if (!s.insecure && !HttpsURLConnection.getDefaultHostnameVerifier().verify(sni, ssl.session)) {
             try { ssl.close() } catch (_: Exception) {}
-            throw SSLPeerUnverifiedException("شهادة الخادم لا تطابق اسم SNI (فعّل السماح بالشهادات غير الموثوقة إن لزم).")
+            throw SSLPeerUnverifiedException("Server certificate does not match the SNI name (enable untrusted certificates if needed).")
         }
         return ssl
     }
