@@ -21,6 +21,7 @@ import com.xraytunnel.app.core.OvpnTunnel
 import com.xraytunnel.app.core.SshTunnel
 import com.xraytunnel.app.core.XrayCore
 import com.xraytunnel.app.data.Repo
+import com.xraytunnel.app.data.DnsPrefs
 import com.xraytunnel.app.data.TimeCredit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -207,8 +208,8 @@ class XrayVpnService : VpnService() {
                 .addAddress("fd00:10:14::1", 126)
                 .addRoute("0.0.0.0", 0)
                 .addRoute("::", 0)
-                .addDnsServer("1.1.1.1")
-                .addDnsServer("8.8.8.8")
+                .addDnsServer(DnsPrefs.primary(this))
+                .addDnsServer(DnsPrefs.secondary(this))
                 .addDisallowedApplication(packageName) // حتى لا يمر اتصال التطبيق نفسه عبر النفق
                 .establish() ?: error("VPN permission not granted")
             pfd = p
