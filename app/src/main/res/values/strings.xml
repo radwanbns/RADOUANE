@@ -96,4 +96,8 @@
     <string name="notification_connected">Connected</string>
     <string name="notification_disconnected">Disconnected</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="nav_configs">Configs</string>
+    <string name="nav_more">More</string>
+    <string name="dns_settings">Custom DNS</string>
+    <string name="dns_saved">DNS saved. Reconnect VPN to apply.</string>
 </resources>
