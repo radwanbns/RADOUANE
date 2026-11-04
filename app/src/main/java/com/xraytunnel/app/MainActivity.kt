@@ -357,14 +357,8 @@ fun MainScreen(vm: MainViewModel) {
     val message by vm.message.collectAsStateWithLifecycle()
     val error by XrayVpnService.lastError.collectAsStateWithLifecycle()
     val connLines by ConnLog.lines.collectAsStateWithLifecycle()
-    var showLog by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state) {
-        when (state) {
-            VpnState.Connecting -> showLog = true
-            VpnState.Connected -> { kotlinx.coroutines.delay(5000); showLog = false }
-            else -> {}
-        }
-    }
+    // 0 = Home, 1 = Logs
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
 
     val snack = remember { SnackbarHostState() }
     val uiScope = rememberCoroutineScope()
@@ -431,20 +425,17 @@ fun MainScreen(vm: MainViewModel) {
         }
     }
 
-    // Show one interstitial after successful VPN connection.
-    var lastObservedVpnState by remember { mutableStateOf(state) }
-
-    LaunchedEffect(state) {
-        val justConnected =
-            state == VpnState.Connected &&
-            lastObservedVpnState != VpnState.Connected
-
-        lastObservedVpnState = state
-
-        if (justConnected) {
-            hostActivity?.showConnectedInterstitial()
-        }
-    }
+    // Interstitial on VPN connect disabled by request.
+    // var lastObservedVpnState by remember { mutableStateOf(state) }
+    // LaunchedEffect(state) {
+    //     val justConnected =
+    //         state == VpnState.Connected &&
+    //         lastObservedVpnState != VpnState.Connected
+    //     lastObservedVpnState = state
+    //     if (justConnected) {
+    //         hostActivity?.showConnectedInterstitial()
+    //     }
+    // }
 
     // Automatic subscription update.
     LaunchedEffect(Unit) {
@@ -700,6 +691,22 @@ fun MainScreen(vm: MainViewModel) {
                     }
                 }
             )
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_home)) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    icon = { Icon(Icons.Default.List, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_logs)) }
+                )
+            }
         }
     ) { pad ->
 
@@ -709,6 +716,20 @@ fun MainScreen(vm: MainViewModel) {
                 .padding(pad)
         ) {
 
+            if (selectedTab == 1) {
+                // ===================== LOGS PAGE =====================
+                LogsPage(
+                    state = state,
+                    lines = connLines,
+                    onCopy = {
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("connection log", ConnLog.asText()))
+                        Toast.makeText(ctx, ctx.getString(R.string.conn_log_copied), Toast.LENGTH_SHORT).show()
+                    },
+                    onClear = { ConnLog.clear() }
+                )
+            } else {
+            // ===================== HOME PAGE =====================
             Column(
                 Modifier.fillMaxSize()
             ) {
@@ -723,27 +744,6 @@ fun MainScreen(vm: MainViewModel) {
 
                     // 1. VPN CONNECT BUTTON AT THE TOP.
                     Hero(state, selected?.name, remainingCredit, ::watchReward, ::toggle)
-
-                    // سجل الاتصال: يظهر تلقائياً أثناء الاتصال، ويبقى عند الفشل لقراءة السبب
-                    if (connLines.isNotEmpty()) {
-                        if (showLog) {
-                            ConnLogPanel(
-                                state = state,
-                                lines = connLines,
-                                onCopy = {
-                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    cm.setPrimaryClip(ClipData.newPlainText("connection log", ConnLog.asText()))
-                                    Toast.makeText(ctx, ctx.getString(R.string.conn_log_copied), Toast.LENGTH_SHORT).show()
-                                },
-                                onClear = { ConnLog.clear() },
-                                onHide = { showLog = false }
-                            )
-                        } else {
-                            TextButton(onClick = { showLog = true }) {
-                                Text(stringResource(R.string.conn_log_show))
-                            }
-                        }
-                    }
 
                     // 3. SERVER LIST HEADER AND UPDATE BUTTON.
                     Row(
@@ -943,8 +943,10 @@ fun MainScreen(vm: MainViewModel) {
                 // AdMob banner.
                 AdMobBannerAd()
             }
+            } // end of Home page (selectedTab == 0)
 
-            // Update success banner.
+            // Update success banner (visible on Home).
+            if (selectedTab == 0) {
             updateBanner?.let { text ->
 
                 Surface(
@@ -977,6 +979,7 @@ fun MainScreen(vm: MainViewModel) {
                     }
                 }
             }
+            } // end if selectedTab == 0 for updateBanner
         }
     }
 
@@ -1584,7 +1587,114 @@ private fun shareText(
 
 
 // ----------------------------------------------------------------
-// CONNECTION LOG PANEL
+// LOGS PAGE (full screen)
+// ----------------------------------------------------------------
+
+@Composable
+private fun LogsPage(
+    state: VpnState,
+    lines: List<ConnLog.Line>,
+    onCopy: () -> Unit,
+    onClear: () -> Unit
+) {
+    val scroll = rememberScrollState()
+    LaunchedEffect(lines.size) {
+        kotlinx.coroutines.delay(30)
+        scroll.animateScrollTo(scroll.maxValue)
+    }
+    val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
+
+    val bg = Color(0xFF0F172A)
+    val dim = Color(0xFF64748B)
+    val dot = when (state) {
+        VpnState.Connected -> ConnectedGreen
+        VpnState.Connecting -> ConnectingAmber
+        else -> dim
+    }
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(bg)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    stringResource(R.string.conn_log_title),
+                    color = Color(0xFFE2E8F0),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(stringResource(R.string.conn_log_copy), color = Color(0xFF93C5FD), fontSize = 13.sp)
+                }
+                TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(stringResource(R.string.conn_log_clear), color = Color(0xFF93C5FD), fontSize = 13.sp)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            if (lines.isEmpty()) {
+                Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        stringResource(R.string.logs_empty),
+                        color = dim,
+                        fontSize = 15.sp
+                    )
+                }
+            } else {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scroll),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    lines.forEach { l ->
+                        val color = when (l.level) {
+                            ConnLog.Level.OK -> Color(0xFF34D399)
+                            ConnLog.Level.WARN -> Color(0xFFFBBF24)
+                            ConnLog.Level.ERROR -> Color(0xFFF87171)
+                            ConnLog.Level.DEBUG -> dim
+                            ConnLog.Level.INFO -> Color(0xFFCBD5E1)
+                        }
+                        Row {
+                            Text(
+                                fmt.format(java.util.Date(l.time)),
+                                color = dim,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                l.text,
+                                color = color,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------
+// CONNECTION LOG PANEL (compact, kept for compatibility)
 // ----------------------------------------------------------------
 
 @Composable
@@ -1593,7 +1703,7 @@ private fun ConnLogPanel(
     lines: List<ConnLog.Line>,
     onCopy: () -> Unit,
     onClear: () -> Unit,
-    onHide: () -> Unit
+    onHide: (() -> Unit)? = null
 ) {
     val scroll = rememberScrollState()
     LaunchedEffect(lines.size) {
@@ -1634,8 +1744,10 @@ private fun ConnLogPanel(
                     TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
                         Text(stringResource(R.string.conn_log_clear), color = Color(0xFF93C5FD), fontSize = 12.sp)
                     }
-                    IconButton(onClick = onHide, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF94A3B8))
+                    if (onHide != null) {
+                        IconButton(onClick = onHide, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.KeyboardArrowUp, null, tint = Color(0xFF94A3B8))
+                        }
                     }
                 }
                 Box(
