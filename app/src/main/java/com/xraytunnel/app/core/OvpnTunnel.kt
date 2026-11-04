@@ -405,7 +405,20 @@ class OvpnTunnel(
             val status = Regex("^HTTP/\\S+\\s+(\\d{3})").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             if (status == 101) break
             val len = Regex("(?im)^content-length:\\s*(\\d+)").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            if (len > 0) skipBody(pin, len)
+            val chunked = Regex("(?im)^transfer-encoding:\\s*chunked").containsMatchIn(head)
+            when {
+                chunked -> skipChunked(pin)
+                len > 0 -> skipBody(pin, len)
+                status in 200..299 && n < expected -> {
+                    // رد بلا طول معروف وينتظرنا رد آخر: نبحث عن بداية الرد التالي "HTTP/1."
+                    // (نمرّر ما بينهما كجسم) بدل ترك الجسم يتسرب إلى OpenVPN
+                    val next = scanForNextResponse(pin)
+                    if (next.isEmpty()) break
+                    n++
+                    statusLines.add(next.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
+                    break
+                }
+            }
         }
         // لا نفرض 101: بعض السيرفرات ترجع 200 أو رداً غير واضح
     }
@@ -422,6 +435,50 @@ class OvpnTunnel(
             if (sb.length > 8192) break
         }
         return sb.toString()
+    }
+
+    /** يتجاوز جسماً مجزّأً (Transfer-Encoding: chunked) حتى القطعة الأخيرة. */
+    private fun skipChunked(pin: PushbackInputStream) {
+        fun readLine(): String? {
+            val sb = StringBuilder()
+            while (true) {
+                val c = pin.read()
+                if (c < 0) return if (sb.isEmpty()) null else sb.toString()
+                if (c == '\n'.code) return sb.toString().trimEnd('\r')
+                sb.append(c.toChar())
+                if (sb.length > 64) return sb.toString()
+            }
+        }
+        repeat(4096) {
+            val line = readLine() ?: return
+            val size = line.substringBefore(';').trim().toIntOrNull(16) ?: return
+            if (size == 0) {
+                // سطور التذييل (trailers) حتى السطر الفارغ
+                while (true) { val l = readLine() ?: return; if (l.isEmpty()) return }
+            }
+            var left = size
+            val buf = ByteArray(2048)
+            while (left > 0) {
+                val r = pin.read(buf, 0, minOf(buf.size, left))
+                if (r <= 0) return
+                left -= r
+            }
+            readLine() // CRLF بعد القطعة
+        }
+    }
+
+    /** يمرّ على البايتات حتى "HTTP/1." ثم يقرأ رأس ذلك الرد؛ يرجع الرأس أو "" إن لم يجده (حد 64KB). */
+    private fun scanForNextResponse(pin: PushbackInputStream): String {
+        val marker = "HTTP/1."
+        var matched = 0
+        var count = 0
+        while (count++ < 65536) {
+            val c = pin.read()
+            if (c < 0) return ""
+            matched = if (c.toChar() == marker[matched]) matched + 1 else if (c.toChar() == marker[0]) 1 else 0
+            if (matched == marker.length) return marker + readHeaderBlock(pin)
+        }
+        return ""
     }
 
     private fun skipBody(pin: PushbackInputStream, len: Int) {
