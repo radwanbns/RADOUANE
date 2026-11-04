@@ -38,7 +38,8 @@ internal object SecureLinks {
     )
 
     fun youtubeUrl(): String = decrypt(
-        "ORmGKFbKgN8z2KNf",
-        "tjgSN+kekJBxrHvQoLtGMPVh0hEJH097Qk5kM0G5fu09Vk8W+D+KjfxArNQJelZlZ6o="
+        "XyZPcMt4ppPnGtwn",
+        "Wl3cHxaV9agR0Z8FbdgWEUHY8MRw5hfsG73xlUXhCUgmkGk90yHYsvzGkEq24NTZqWLgPcoRzZTh7gy5QQ=="
     )
 }
+
