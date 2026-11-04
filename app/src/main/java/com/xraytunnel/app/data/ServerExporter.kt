@@ -53,13 +53,20 @@ object ServerExporter {
                     "${if (q.isNotEmpty()) "?$q" else ""}#$name"
             }
             "ovpn", "openvpn" -> {
-                if (s.ovpnConfig.isNotBlank()) return null // لا يمكن ضغط ملف .ovpn كامل في رابط؛ استخدم JSON
+                // Real .ovpn configs are embedded as base64 in the "config" query param.
+                val configB64 = if (s.ovpnConfig.isNotBlank()) {
+                    Base64.encodeToString(
+                        s.ovpnConfig.toByteArray(Charsets.UTF_8),
+                        Base64.NO_WRAP or Base64.URL_SAFE
+                    )
+                } else ""
                 val q = query(
                     "type" to s.network, "security" to s.security, "sni" to s.sni,
                     "host" to s.host, "path" to s.path, "payload" to s.payload,
                     "proto" to s.method.ifBlank { "tcp" },
                     "proxy" to if (s.proxyHost.isNotBlank()) "${s.proxyHost}:${s.proxyPort}" else "",
-                    "allowInsecure" to if (s.insecure) "1" else ""
+                    "allowInsecure" to if (s.insecure) "1" else "",
+                    "config" to configB64
                 )
                 val userInfo = when {
                     s.username.isNotBlank() && s.secret.isNotBlank() ->
@@ -68,7 +75,10 @@ object ServerExporter {
                     s.secret.isNotBlank() -> Uri.encode(s.secret)
                     else -> ""
                 }
-                val authority = if (userInfo.isNotEmpty()) "$userInfo@$host:${s.port}" else "$host:${s.port}"
+                val effectiveHost = if (s.address.isNotBlank()) host else "openvpn"
+                val effectivePort = if (s.port in 1..65535) s.port else 1194
+                val authority = if (userInfo.isNotEmpty()) "$userInfo@$effectiveHost:$effectivePort"
+                    else "$effectiveHost:$effectivePort"
                 "ovpn://$authority${if (q.isNotEmpty()) "?$q" else ""}#$name"
             }
             "shadowsocks" -> {
