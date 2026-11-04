@@ -382,7 +382,7 @@ fun MainScreen(vm: MainViewModel) {
     var exportAllDialog by remember { mutableStateOf(false) }
     var newServer by remember { mutableStateOf<Server?>(null) }
     var addMenu by remember { mutableStateOf(false) }
-    var showTelegram by remember { mutableStateOf(true) }
+    var showTelegram by remember { mutableStateOf(true) } // every cold start
     var updateBanner by remember { mutableStateOf<String?>(null) }
     var remainingCredit by remember {
         mutableLongStateOf(TimeCredit.remaining(ctx))
@@ -613,36 +613,24 @@ fun MainScreen(vm: MainViewModel) {
     fun openLink(url: String) {
         val isYoutube = url.contains("youtube.com", ignoreCase = true) ||
             url.contains("youtu.be", ignoreCase = true)
-        val candidates = if (isYoutube) {
-            listOf(
-                url,
-                "https://www.youtube.com/@radouane_tech/videos",
-                "https://www.youtube.com/@radouane_tech/featured",
-                "https://m.youtube.com/@radouane_tech",
-                "vnd.youtube://www.youtube.com/@radouane_tech"
-            ).distinct()
-        } else listOf(url)
-        for (candidate in candidates) {
-            val uri = android.net.Uri.parse(candidate)
-            try {
-                if (isYoutube) {
-                    try {
-                        ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW, uri)
-                                .setPackage("com.google.android.youtube")
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                        return
-                    } catch (_: Exception) {
-                    }
+        val uri = android.net.Uri.parse(url)
+        try {
+            if (isYoutube) {
+                try {
+                    ctx.startActivity(
+                        Intent(Intent.ACTION_VIEW, uri)
+                            .setPackage("com.google.android.youtube")
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    return
+                } catch (_: Exception) {
                 }
-                ctx.startActivity(
-                    Intent(Intent.ACTION_VIEW, uri)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                return
-            } catch (_: Exception) {
             }
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, uri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
         }
     }
 
@@ -707,25 +695,6 @@ fun MainScreen(vm: MainViewModel) {
                             }
                         )
 
-                        DropdownMenuItem(
-                            text = {
-                                Text(stringResource(R.string.telegram_channel))
-                            },
-                            onClick = {
-                                menu = false
-                                openLink(Defaults.telegramChannelUrl())
-                            }
-                        )
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(stringResource(R.string.youtube_channel))
-                            },
-                            onClick = {
-                                menu = false
-                                openLink(Defaults.youtubeUrl())
-                            }
-                        )
                     }
                 }
             )
@@ -1037,7 +1006,7 @@ fun MainScreen(vm: MainViewModel) {
                         .padding(bottom = 14.dp)
                         .height(54.dp),
                     shape = RoundedCornerShape(17.dp),
-                    color = MaterialTheme.colorScheme.primary,
+                    color = ConnectedGreen,
                     shadowElevation = 4.dp,
                     contentColor = Color.White
                 ) {
@@ -1265,15 +1234,7 @@ private fun NpvHomePage(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            "XRAY TUNNEL",
-            color = NpvGreen,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-            fontSize = 18.sp
-        )
-        Text("v1.4.0", color = Color(0xFF7A9184), fontSize = 12.sp)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(12.dp))
         Box(
             modifier = Modifier
                 .size(160.dp)
@@ -1354,13 +1315,7 @@ private fun NpvHomePage(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (selected != null) {
-                            Text(
-                                "${selected.address}:${selected.port}",
-                                color = Color(0xFF6B7F72),
-                                fontSize = 13.sp
-                            )
-                        }
+                        // Host/port hidden on Home for privacy
                     }
                     if (selected != null) {
                         Text(
@@ -1442,7 +1397,7 @@ private fun MorePage(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.youtube_channel), fontWeight = FontWeight.SemiBold)
-                    Text("@radouane_tech", color = Color(0xFF6B7F72), fontSize = 13.sp)
+                    Text("YouTube channel", color = Color(0xFF6B7F72), fontSize = 13.sp)
                 }
                 Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
             }
@@ -1854,15 +1809,15 @@ private fun protocolLabel(p: String) = when (p) {
 }
 
 private fun protocolColor(p: String) = when (p) {
-    "vless" -> Color(0xFF38BDF8)
-    "vmess" -> Color(0xFFA78BFA)
-    "trojan" -> Color(0xFFF472B6)
-    "shadowsocks" -> Color(0xFF34D399)
-    "hysteria2" -> Color(0xFFFBBF24)
-    "wireguard" -> Color(0xFFFB7185)
-    "ssh" -> Color(0xFF22D3EE)
-    "ovpn" -> Color(0xFF4ADE80)
-    else -> Color(0xFF94A3B8)
+    "vless" -> Color(0xFF2E7D4F)
+    "vmess" -> Color(0xFF16A34A)
+    "trojan" -> Color(0xFF15803D)
+    "shadowsocks" -> Color(0xFF22C55E)
+    "hysteria2" -> Color(0xFF4ADE80)
+    "wireguard" -> Color(0xFF166534)
+    "ssh" -> Color(0xFF15803D)
+    "ovpn" -> Color(0xFF22C55E)
+    else -> Color(0xFF6B7F72)
 }
 
 @Composable
