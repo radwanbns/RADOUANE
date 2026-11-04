@@ -278,7 +278,7 @@ object LinkParser {
                 }
                 "port" -> if (parts.size >= 2) parsePort(parts[1])?.let { globalPort = it }
                 "proto" -> if (parts.size >= 2) parseProto(parts[1])?.let { proto = it }
-                "auth-user-pass" -> { /* يدوي */ }
+                "auth-user-pass" -> { /* manual */ }
                 "dev" -> { /* ignore */ }
             }
         }
