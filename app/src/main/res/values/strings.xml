@@ -30,9 +30,9 @@
     <string name="field_security">Security</string>
     <string name="field_path">Path / Service name</string>
     <string name="field_allow_insecure">Allow Insecure (skip TLS certificate verification)</string>
-    <string name="telegram_title">Join our Telegram channel</string>
-    <string name="telegram_message">Follow the channel for news, new servers and updates.</string>
-    <string name="open_channel">Open channel</string>
+    <string name="telegram_title">Join us on Telegram?</string>
+    <string name="telegram_message">We have a telegram support group where we post and discuss about settings, new features and also assist our users.\n\nWould you like to join us there?</string>
+    <string name="open_channel">Open Channel</string>
     <string name="later">Later</string>
     <string name="uri_export_not_supported">URI export is not supported for this protocol; share JSON instead.</string>
     <string name="update_no_changes">No new servers found</string>
