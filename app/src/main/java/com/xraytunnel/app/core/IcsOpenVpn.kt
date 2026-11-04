@@ -91,7 +91,7 @@ object IcsOpenVpn {
 
     /** يسجّل مستمعاً لحالة الاتصال ويحوّلها إلى [Status]. */
     @Synchronized
-    fun observe(onStatus: (Status) -> Unit) {
+    fun observe(onDetail: (String) -> Unit = {}, onStatus: (Status) -> Unit) {
         removeObserver()
         sawActive = false
         val l = object : VpnStatus.StateListener {
@@ -99,6 +99,7 @@ object IcsOpenVpn {
                 state: String?, logmessage: String?, localizedResId: Int,
                 level: ConnectionStatus?, intent: Intent?
             ) {
+                if (!state.isNullOrBlank()) onDetail(state)
                 val status: Status? = when (level) {
                     ConnectionStatus.LEVEL_CONNECTED -> { sawActive = true; Status.Connected }
                     ConnectionStatus.LEVEL_START,
@@ -122,6 +123,11 @@ object IcsOpenVpn {
         listener = l
         VpnStatus.addStateListener(l)
     }
+
+    /** آخر أسطر من سجل ics-openvpn (لتشخيص التعليق). */
+    fun recentLog(ctx: Context, n: Int = 8): String = try {
+        VpnStatus.getlogbuffer().takeLast(n).joinToString("\n") { it.getString(ctx) }
+    } catch (_: Throwable) { "" }
 
     @Synchronized
     fun removeObserver() {
