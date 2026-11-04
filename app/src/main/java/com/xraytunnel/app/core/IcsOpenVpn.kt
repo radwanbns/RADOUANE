@@ -149,6 +149,23 @@ object IcsOpenVpn {
         VpnStatus.addStateListener(l)
     }
 
+    @Volatile private var lastLogItem: Any? = null
+
+    /** يضع مؤشر السجل عند آخر عنصر حالي حتى نقرأ أسطر الجلسة الجديدة فقط. */
+    fun markLogCursor() {
+        lastLogItem = try { VpnStatus.getlogbuffer().lastOrNull() } catch (_: Throwable) { null }
+    }
+
+    /** أسطر السجل الجديدة منذ آخر استدعاء. */
+    fun newLogLines(ctx: Context): List<String> = try {
+        val buf = VpnStatus.getlogbuffer()
+        val last = lastLogItem
+        val idx = if (last == null) -1 else buf.indexOfLast { it === last }
+        val fresh = if (idx >= 0) buf.drop(idx + 1) else buf.takeLast(60)
+        if (fresh.isNotEmpty()) lastLogItem = fresh.last()
+        fresh.map { it.getString(ctx) }
+    } catch (_: Throwable) { emptyList() }
+
     /** آخر أسطر من سجل ics-openvpn (لتشخيص التعليق). */
     fun recentLog(ctx: Context, n: Int = 8): String = try {
         VpnStatus.getlogbuffer().takeLast(n).joinToString("\n") { it.getString(ctx) }
