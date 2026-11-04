@@ -55,10 +55,10 @@ class OvpnTunnel(
     private val strippedBytes = AtomicLong(0)
 
     fun diagnostics(): String {
-        val lines = statusLines.toList().takeLast(4).joinToString(" | ").ifBlank { "لا ردود HTTP" }
-        return "الممرّر: اتصالات OpenVPN=${rawClients.get()}، ردود=[$lines]، " +
-            "↑${bytesUp.get()}B ↓${bytesDown.get()}B، نص مُزال=${strippedBytes.get()}B\n" +
-            "أول بايتات من السيرفر: ${firstDown.get().ifBlank { "لا شيء" }}"
+        val lines = statusLines.toList().takeLast(4).joinToString(" | ").ifBlank { "No HTTP responses" }
+        return "Relay: OpenVPN connections=${rawClients.get()}, responses=[$lines], " +
+            "↑${bytesUp.get()}B ↓${bytesDown.get()}B, stripped text=${strippedBytes.get()}B\n" +
+            "First bytes from server: ${firstDown.get().ifBlank { "none" }}"
     }
     private var listener: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r ->
@@ -68,7 +68,7 @@ class OvpnTunnel(
     fun start(): Int {
         try {
             if (server.address.isBlank()) throw TunnelException("Server address is empty.")
-            if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
+            if (server.port !in 1..65535) throw TunnelException("Invalid port.")
 
             // نختبر الاتصال + البايلود أولاً
             testConnection()
@@ -91,14 +91,14 @@ class OvpnTunnel(
     fun startRawForward(): Int {
         try {
             if (server.address.isBlank()) throw TunnelException("Server address is empty.")
-            if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
+            if (server.port !in 1..65535) throw TunnelException("Invalid port.")
             ConnLog.add(ConnLog.Level.INFO, "Pre-checking payload path…")
             testConnection()
             ConnLog.add(ConnLog.Level.OK, "Payload check succeeded")
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
             listener = ss
             pool.execute { acceptLoop(ss, raw = true) }
-            ConnLog.add(ConnLog.Level.OK, "الممرّر المحلي جاهز على 127.0.0.1:${ss.localPort}")
+            ConnLog.add(ConnLog.Level.OK, "Local relay ready on 127.0.0.1:${ss.localPort}")
             return ss.localPort
         } catch (e: Throwable) {
             close()
@@ -136,7 +136,7 @@ class OvpnTunnel(
     private fun handleRawClient(client: Socket) {
         var remote: Socket? = null
         val attempt = rawClients.incrementAndGet()
-        ConnLog.add(ConnLog.Level.INFO, "OpenVPN اتصل بالممرّر المحلي (محاولة #$attempt)")
+        ConnLog.add(ConnLog.Level.INFO, "OpenVPN connected to the local relay (attempt #$attempt)")
         try {
             client.tcpNoDelay = true
             val ep = createEndpoint()
@@ -263,8 +263,8 @@ class OvpnTunnel(
 
         ConnLog.add(
             ConnLog.Level.INFO,
-            if (useProxy) "اتصال TCP بالبروكسي ${server.proxyHost.trim()}:$proxyPort"
-            else "اتصال TCP بالسيرفر ${server.address}:$targetPort" + if (tlsOn) " (TLS)" else ""
+            if (useProxy) "TCP connection to proxy ${server.proxyHost.trim()}:$proxyPort"
+            else "TCP connection to server ${server.address}:$targetPort" + if (tlsOn) " (TLS)" else ""
         )
         val raw = Socket()
         raw.tcpNoDelay = true
@@ -403,7 +403,7 @@ class OvpnTunnel(
             code in 200..299 -> ConnLog.Level.INFO
             else -> ConnLog.Level.WARN
         }
-        ConnLog.add(lvl, "ردّ البوابة: $line")
+        ConnLog.add(lvl, "Gateway reply: $line")
     }
 
     /** عدد الطلبات HTTP داخل البايلود (كل طلب ينتهي بسطر فارغ)، مثل بايلود "GET ... [crlf][crlf] ACL ... [crlf][crlf]". */
@@ -536,7 +536,7 @@ class OvpnTunnel(
                         ConnLog.add(ConnLog.Level.DEBUG, "First bytes from server: ${firstDown.get()}")
                     }
                     while (off < r && isTextByte(buffer[off])) off++
-                    if (off > 0) ConnLog.add(ConnLog.Level.WARN, "تجاوز نص عادي ($off بايت) قبل بيانات OpenVPN")
+                    if (off > 0) ConnLog.add(ConnLog.Level.WARN, "Skipped plain text ($off bytes) before OpenVPN data")
                     strippedBytes.addAndGet(off.toLong())
                     if (off < r) leading = false
                 }
@@ -584,7 +584,7 @@ class OvpnTunnel(
             msg.contains("Connection refused", true) ->
                 "Connection refused. Check address and port."
             msg.contains("Unable to resolve", true) || msg.contains("UnknownHost", true) ->
-                "تعذر حل اسم المضيف."
+                "Could not resolve hostname."
             else -> msg
         }
     }
