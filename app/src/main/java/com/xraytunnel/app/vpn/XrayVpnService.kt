@@ -135,20 +135,21 @@ class XrayVpnService : VpnService() {
         if (state.value != VpnState.Disconnected) return
         ConnLog.clear()
         if (TimeCredit.remaining(this) <= 0L) {
-            setError("انتهى الوقت المتاح. شاهد إعلاناً مكافأة لإضافة ساعة كاملة.")
+            setError("Time expired. Watch a rewarded ad to add a full hour.")
             stopVpn()
             return
         }
         if (!hasPhysicalNetwork()) {
-            setError("لا توجد شبكة Wi-Fi أو بيانات هاتف متاحة.")
+            setError("No Wi-Fi or mobile data available.")
             stopVpn()
             return
         }
         state.value = VpnState.Connecting
+        updateNotification()
         lastError.value = null
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
-        ConnLog.add(ConnLog.Level.INFO, "بدء الاتصال: ${server.name} (${server.protocol.uppercase()})")
+        ConnLog.add(ConnLog.Level.INFO, "Starting connection: ${server.name} (${server.protocol.uppercase()})")
         try {
             if (server.isRealOvpn) {
                 startRealOvpn(server)
@@ -157,7 +158,7 @@ class XrayVpnService : VpnService() {
             // SSH أو OVPN: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء البايلود/TLS فوراً.
             val config = when (server.protocol) {
                 "ssh" -> {
-                    ConnLog.add(ConnLog.Level.INFO, "تشغيل نفق SSH…")
+                    ConnLog.add(ConnLog.Level.INFO, "Starting SSH tunnel…")
                     val tunnel = SshTunnel(
                         server,
                         onFatal = { msg ->
@@ -177,7 +178,7 @@ class XrayVpnService : VpnService() {
                     ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
                 }
                 "ovpn" -> {
-                    ConnLog.add(ConnLog.Level.INFO, "تشغيل نفق Payload (وضع قديم، SOCKS)…")
+                    ConnLog.add(ConnLog.Level.INFO, "Starting Payload tunnel (legacy SOCKS mode)…")
                     val tunnel = OvpnTunnel(
                         server,
                         onFatal = { msg ->
@@ -198,7 +199,7 @@ class XrayVpnService : VpnService() {
                 }
                 else -> ConfigBuilder.build(server)
             }
-            ConnLog.add(ConnLog.Level.INFO, "إنشاء واجهة VPN (tun)")
+            ConnLog.add(ConnLog.Level.INFO, "Creating VPN interface (tun)")
             val p = Builder()
                 .setSession("Xray Tunnel")
                 .setMtu(1500)
@@ -211,10 +212,11 @@ class XrayVpnService : VpnService() {
                 .addDisallowedApplication(packageName) // حتى لا يمر اتصال التطبيق نفسه عبر النفق
                 .establish() ?: error("VPN permission not granted")
             pfd = p
-            ConnLog.add(ConnLog.Level.INFO, "تشغيل نواة Xray")
+            ConnLog.add(ConnLog.Level.INFO, "Starting Xray core")
             XrayCore.start(this, config, p.fd)
             state.value = VpnState.Connected
-            ConnLog.add(ConnLog.Level.OK, "تم الاتصال بنجاح")
+            updateNotification()
+            ConnLog.add(ConnLog.Level.OK, "Connected successfully")
             startCreditTicker()
         } catch (e: Throwable) {
             setError(e.message ?: e.javaClass.simpleName)
@@ -230,19 +232,19 @@ class XrayVpnService : VpnService() {
     }
 
     private fun friendlyState(s: String): String = when (s.uppercase()) {
-        "NOPROCESS" -> "تهيئة عملية OpenVPN"
-        "CONNECTING" -> "بدء الاتصال"
-        "RESOLVE" -> "حل اسم السيرفر"
-        "TCP_CONNECT" -> "الاتصال بالسيرفر (TCP)"
-        "WAIT" -> "انتظار رد السيرفر"
-        "AUTH" -> "المصادقة وتبادل مفاتيح TLS"
-        "GET_CONFIG" -> "استلام إعدادات الشبكة من السيرفر"
-        "ASSIGN_IP" -> "تعيين عنوان IP للنفق"
-        "ADD_ROUTES" -> "إضافة المسارات"
-        "CONNECTED" -> "تم الاتصال بالسيرفر"
-        "RECONNECTING" -> "إعادة الاتصال"
-        "CONNECTRETRY" -> "إعادة المحاولة بعد قليل"
-        "EXITING" -> "إنهاء الاتصال"
+        "NOPROCESS" -> "Initializing OpenVPN process"
+        "CONNECTING" -> "Starting connection"
+        "RESOLVE" -> "Resolving server name"
+        "TCP_CONNECT" -> "Connecting to server (TCP)"
+        "WAIT" -> "Waiting for server response"
+        "AUTH" -> "Authenticating and exchanging TLS keys"
+        "GET_CONFIG" -> "Receiving network config from server"
+        "ASSIGN_IP" -> "Assigning tunnel IP address"
+        "ADD_ROUTES" -> "Adding routes"
+        "CONNECTED" -> "Connected to server"
+        "RECONNECTING" -> "Reconnecting"
+        "CONNECTRETRY" -> "Retrying shortly"
+        "EXITING" -> "Closing connection"
         else -> s
     }
 
@@ -308,15 +310,17 @@ class XrayVpnService : VpnService() {
                     when (st) {
                         IcsOpenVpn.Status.Connected -> if (state.value != VpnState.Connected) {
                             state.value = VpnState.Connected
-                            ConnLog.add(ConnLog.Level.OK, "تم الاتصال بنجاح — النفق يعمل")
+                            updateNotification()
+                            ConnLog.add(ConnLog.Level.OK, "Connected successfully — tunnel is up")
                             startCreditTicker()
                         }
                         IcsOpenVpn.Status.Connecting -> if (state.value == VpnState.Disconnected) {
                             state.value = VpnState.Connecting
+                            updateNotification()
                         }
-                        // انقطاع شبكة مؤقت: نبقى متصلين ظاهرياً؛ OpenVPN يعيد الاتصال وحده
+                        // Temporary network drop: stay "connected" in UI; OpenVPN reconnects on its own
                         IcsOpenVpn.Status.Waiting ->
-                            ConnLog.add(ConnLog.Level.WARN, "انقطاع شبكة مؤقت — OpenVPN ينتظر إعادة الاتصال")
+                            ConnLog.add(ConnLog.Level.WARN, "Temporary network drop — OpenVPN is waiting to reconnect")
                         is IcsOpenVpn.Status.Failed -> {
                             lastError.value = st.message
                             ConnLog.add(ConnLog.Level.ERROR, st.message)
@@ -331,8 +335,8 @@ class XrayVpnService : VpnService() {
         if (server.usesPayloadForward) {
             ConnLog.add(
                 ConnLog.Level.INFO,
-                "تشغيل الممرّر المحلي" +
-                    (if (server.proxyHost.isNotBlank()) " — بروكسي ${server.proxyHost}:${server.proxyPort}" else "") +
+                "Starting local forwarder" +
+                    (if (server.proxyHost.isNotBlank()) " — proxy ${server.proxyHost}:${server.proxyPort}" else "") +
                     (if (server.security == "tls") " — TLS" else "") +
                     (if (server.network == "ws" || server.payload.isNotBlank()) " — Payload/WS" else "")
             )
@@ -353,7 +357,7 @@ class XrayVpnService : VpnService() {
             forwardPort = fwd.startRawForward() // يرمي خطأ مفهوماً إن فشل البايلود/البروكسي/TLS
             ovpnTunnel = fwd
         }
-        ConnLog.add(ConnLog.Level.INFO, "تحليل ملف .ovpn وتشغيل ics-openvpn")
+        ConnLog.add(ConnLog.Level.INFO, "Parsing .ovpn file and starting ics-openvpn")
         IcsOpenVpn.markLogCursor()
         IcsOpenVpn.start(this, server, forwardPort)
 
@@ -369,9 +373,9 @@ class XrayVpnService : VpnService() {
         scope.launch {
             kotlinx.coroutines.delay(40_000L)
             if (icsActive && state.value == VpnState.Connecting) {
-                ConnLog.add(ConnLog.Level.WARN, "لم يكتمل الاتصال بعد 40 ثانية (حالة OpenVPN: $icsDetail)")
+                ConnLog.add(ConnLog.Level.WARN, "Connection not completed after 40s (OpenVPN state: $icsDetail)")
                 ovpnTunnel?.let { ConnLog.add(ConnLog.Level.DEBUG, it.diagnostics()) }
-                lastError.value = "لم يكتمل الاتصال بعد 40 ثانية — راجع سجل الاتصال."
+                lastError.value = "Connection not completed after 40s — check the connection log."
             }
         }
     }
@@ -413,13 +417,29 @@ class XrayVpnService : VpnService() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1,
             Intent(this, XrayVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val statusText = when (state.value) {
+            VpnState.Connected -> getString(R.string.notification_connected)
+            VpnState.Connecting -> getString(R.string.notification_connecting)
+            else -> getString(R.string.notification_disconnected)
+        }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.connected))
+            .setContentText(statusText)
             .setContentIntent(open)
             .addAction(0, getString(R.string.disconnect), stop)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
     }
+
+    /** Refresh the foreground notification to match the current VpnState. */
+    private fun updateNotification() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.notify(1, notification())
+        } catch (_: Exception) {
+        }
+    }
 }
+
