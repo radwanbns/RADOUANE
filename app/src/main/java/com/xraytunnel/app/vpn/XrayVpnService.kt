@@ -75,7 +75,7 @@ class XrayVpnService : VpnService() {
         try {
             connectivityManager.registerNetworkCallback(request, physicalNetworkCallback)
         } catch (e: Exception) {
-            setError("تعذر مراقبة اتصال الإنترنت: ${e.message ?: e.javaClass.simpleName}")
+            setError("Could not monitor internet connectivity: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
@@ -96,7 +96,7 @@ class XrayVpnService : VpnService() {
         scope.launch {
             vpnMutex.withLock {
                 if (!icsActive && state.value != VpnState.Disconnected && !hasPhysicalNetwork()) {
-                    setError("انقطع اتصال الإنترنت؛ تم إيقاف نفق VPN.")
+                    setError("Internet connection lost; VPN tunnel stopped.")
                     stopVpn()
                 }
             }
@@ -276,7 +276,7 @@ class XrayVpnService : VpnService() {
                 kotlinx.coroutines.delay(1000L)
                 if (state.value != VpnState.Connected) break
                 if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
-                    setError("انتهى الوقت المتاح؛ تم فصل VPN.")
+                    setError("Available time ran out; VPN disconnected.")
                     vpnMutex.withLock { stopVpn() }
                     break
                 }
@@ -293,8 +293,8 @@ class XrayVpnService : VpnService() {
         icsDetail = ""
         ConnLog.add(
             ConnLog.Level.INFO,
-            "الوضع: OpenVPN حقيقي (ics-openvpn)" +
-                if (server.usesPayloadForward) " عبر ممرّر Payload/Proxy" else " (اتصال مباشر)"
+            "Mode: real OpenVPN (ics-openvpn)" +
+                if (server.usesPayloadForward) " via Payload/Proxy relay" else " (direct connection)"
         )
         var lastShown = ""
         IcsOpenVpn.observe(onDetail = { d ->
