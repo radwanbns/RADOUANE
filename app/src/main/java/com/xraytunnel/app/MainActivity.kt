@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import com.xraytunnel.app.core.ConnLog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -64,6 +65,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.xraytunnel.app.data.Defaults
+import com.xraytunnel.app.data.DnsPrefs
+import com.xraytunnel.app.ui.NpvGreen
 import com.xraytunnel.app.data.Server
 import com.xraytunnel.app.data.ServerExporter
 import com.xraytunnel.app.data.TimeCredit
@@ -608,12 +611,38 @@ fun MainScreen(vm: MainViewModel) {
     }
 
     fun openLink(url: String) {
-        try {
-            ctx.startActivity(
-                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (_: Exception) {
+        val isYoutube = url.contains("youtube.com", ignoreCase = true) ||
+            url.contains("youtu.be", ignoreCase = true)
+        val candidates = if (isYoutube) {
+            listOf(
+                url,
+                "https://www.youtube.com/@radouane_tech/videos",
+                "https://www.youtube.com/@radouane_tech/featured",
+                "https://m.youtube.com/@radouane_tech",
+                "vnd.youtube://www.youtube.com/@radouane_tech"
+            ).distinct()
+        } else listOf(url)
+        for (candidate in candidates) {
+            val uri = android.net.Uri.parse(candidate)
+            try {
+                if (isYoutube) {
+                    try {
+                        ctx.startActivity(
+                            Intent(Intent.ACTION_VIEW, uri)
+                                .setPackage("com.google.android.youtube")
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        return
+                    } catch (_: Exception) {
+                    }
+                }
+                ctx.startActivity(
+                    Intent(Intent.ACTION_VIEW, uri)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                return
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -670,26 +699,6 @@ fun MainScreen(vm: MainViewModel) {
 
                         DropdownMenuItem(
                             text = {
-                                Text(stringResource(R.string.import_file))
-                            },
-                            onClick = {
-                                menu = false
-                                importFile()
-                            }
-                        )
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(stringResource(R.string.export_file))
-                            },
-                            onClick = {
-                                menu = false
-                                exportAllDialog = true
-                            }
-                        )
-
-                        DropdownMenuItem(
-                            text = {
                                 Text(stringResource(R.string.delete_imported))
                             },
                             onClick = {
@@ -722,7 +731,7 @@ fun MainScreen(vm: MainViewModel) {
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = Color.White) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
@@ -732,8 +741,20 @@ fun MainScreen(vm: MainViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    icon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_configs)) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.List, contentDescription = null) },
                     label = { Text(stringResource(R.string.nav_logs)) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.MoreHoriz, contentDescription = null) },
+                    label = { Text(stringResource(R.string.nav_more)) }
                 )
             }
         }
@@ -745,7 +766,8 @@ fun MainScreen(vm: MainViewModel) {
                 .padding(pad)
         ) {
 
-            if (selectedTab == 1) {
+            when (selectedTab) {
+                2 -> {
                 // ===================== LOGS PAGE =====================
                 LogsPage(
                     state = state,
@@ -757,32 +779,64 @@ fun MainScreen(vm: MainViewModel) {
                     },
                     onClear = { ConnLog.clear() }
                 )
-            } else {
-            // ===================== HOME PAGE =====================
+                }
+                3 -> {
+                    MorePage(
+                        onSaveDns = { a, b ->
+                            DnsPrefs.set(ctx, a, b)
+                            uiScope.launch { snack.showSnackbar(ctx.getString(R.string.dns_saved)) }
+                        },
+                        onOpenTelegram = { openLink(Defaults.telegramChannelUrl()) },
+                        onOpenYoutube = { openLink(Defaults.youtubeUrl()) },
+                        onOpenVpnSettings = {
+                            try {
+                                ctx.startActivity(
+                                    Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            } catch (_: Exception) {}
+                        }
+                    )
+                }
+                0 -> {
+            // ===================== HOME PAGE (NPV style) =====================
+            NpvHomePage(
+                state = state,
+                selected = selected,
+                remainingCredit = remainingCredit,
+                onToggle = ::toggle,
+                onWatchReward = ::watchReward,
+                onOpenConfigs = { selectedTab = 1 }
+            )
+                }
+                else -> {
+            // ===================== CONFIGS PAGE =====================
             Column(
                 Modifier.fillMaxSize()
             ) {
 
-                // Connection header (compact to show more servers).
+                // Connection header.
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
 
-                    // 1. VPN CONNECT BUTTON AT THE TOP.
-                    Hero(state, selected?.name, remainingCredit, ::watchReward, ::toggle)
+                    // Server tools (no Hero on configs — power is on Home)
+                    // kept list below
 
-                    // 2. SERVER LIST HEADER AND ACTIONS.
+                    // 3. SERVER LIST HEADER AND UPDATE BUTTON.
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
 
                         Text(
                             "${stringResource(R.string.servers)} (${servers.size})",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f)
                         )
@@ -790,46 +844,41 @@ fun MainScreen(vm: MainViewModel) {
                         FilledTonalIconButton(
                             onClick = vm::updateAll,
                             enabled = !updating,
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(42.dp)
                         ) {
                             if (updating) {
                                 CircularProgressIndicator(
-                                    Modifier.size(16.dp),
+                                    Modifier.size(18.dp),
                                     strokeWidth = 2.dp
                                 )
                             } else {
                                 Icon(
                                     Icons.Default.Refresh,
-                                    stringResource(R.string.update_servers),
-                                    Modifier.size(20.dp)
+                                    stringResource(R.string.update_servers)
                                 )
                             }
                         }
 
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
 
                         Box {
                             FilledTonalButton(
                                 onClick = { addMenu = true },
                                 contentPadding = PaddingValues(
-                                    horizontal = 12.dp,
-                                    vertical = 6.dp
+                                    horizontal = 14.dp,
+                                    vertical = 8.dp
                                 ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(38.dp)
+                                shape = RoundedCornerShape(14.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Add,
                                     null,
-                                    Modifier.size(16.dp)
+                                    Modifier.size(18.dp)
                                 )
 
-                                Spacer(Modifier.width(4.dp))
+                                Spacer(Modifier.width(5.dp))
 
-                                Text(
-                                    stringResource(R.string.add_server),
-                                    fontSize = 13.sp
-                                )
+                                Text(stringResource(R.string.add_server))
                             }
 
                             DropdownMenu(
@@ -897,6 +946,34 @@ fun MainScreen(vm: MainViewModel) {
                             }
                         }
                     }
+
+                    // 4. IMPORT / EXPORT FILE BUTTONS.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = ::importFile,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(stringResource(R.string.import_file), maxLines = 1)
+                        }
+
+                        FilledTonalButton(
+                            onClick = { exportAllDialog = true },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Share, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(stringResource(R.string.export_file), maxLines = 1)
+                        }
+                    }
                 }
 
                 // SERVER LIST.
@@ -915,12 +992,12 @@ fun MainScreen(vm: MainViewModel) {
                             .fillMaxWidth()
                             .weight(1f),
                         contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = 4.dp,
-                            bottom = 16.dp
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 2.dp,
+                            bottom = 32.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(servers, key = { it.id }) { s ->
 
@@ -947,7 +1024,8 @@ fun MainScreen(vm: MainViewModel) {
                 // AdMob banner.
                 AdMobBannerAd()
             }
-            } // end of Home page (selectedTab == 0)
+                } // end else configs
+            } // end when(selectedTab)
 
             // Update success banner (visible on Home).
             if (selectedTab == 0) {
@@ -1152,6 +1230,240 @@ private fun AdMobBannerAd() {
 // Hero
 // ----------------------------------------------------------------
 
+
+@Composable
+private fun NpvHomePage(
+    state: VpnState,
+    selected: Server?,
+    remainingCredit: Long,
+    onToggle: () -> Unit,
+    onWatchReward: () -> Unit,
+    onOpenConfigs: () -> Unit
+) {
+    val statusColor by animateColorAsState(
+        when (state) {
+            VpnState.Connected -> ConnectedGreen
+            VpnState.Connecting -> ConnectingAmber
+            else -> Color(0xFF8FA396)
+        },
+        label = "npv-status"
+    )
+    val statusText = when (state) {
+        VpnState.Connected -> "CONNECTED"
+        VpnState.Connecting -> "CONNECTING..."
+        else -> "NOT CONNECTED"
+    }
+    val statusHint = when (state) {
+        VpnState.Connected -> selected?.name ?: "Tunnel active"
+        VpnState.Connecting -> "Preparing the connection..."
+        else -> "Choose a configuration, then tap the power button"
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "XRAY TUNNEL",
+            color = NpvGreen,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            fontSize = 18.sp
+        )
+        Text("v1.4.0", color = Color(0xFF7A9184), fontSize = 12.sp)
+        Spacer(Modifier.height(28.dp))
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(3.dp, statusColor.copy(alpha = 0.45f), CircleShape)
+                .clickable(enabled = state != VpnState.Connecting, onClick = onToggle),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.PowerSettingsNew,
+                contentDescription = "Connect",
+                modifier = Modifier.size(72.dp),
+                tint = statusColor
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    if (state == VpnState.Connected) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                    null,
+                    tint = statusColor
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(statusText, fontWeight = FontWeight.Bold, color = statusColor)
+                    Text(statusHint, color = Color(0xFF6B7F72), fontSize = 13.sp, maxLines = 2)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onWatchReward)
+        ) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Stars, null, tint = NpvGreen)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Ad-free time", fontWeight = FontWeight.SemiBold)
+                    Text(TimeCredit.format(remainingCredit), color = Color(0xFF6B7F72), fontSize = 13.sp)
+                }
+                Text("Watch +1h", color = NpvGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenConfigs)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    "ACTIVE CONFIGURATION",
+                    color = Color(0xFF7A9184),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Description, null, tint = NpvGreen, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            selected?.name ?: "No configuration",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (selected != null) {
+                            Text(
+                                "${selected.address}:${selected.port}",
+                                color = Color(0xFF6B7F72),
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                    if (selected != null) {
+                        Text(
+                            selected.protocol.uppercase().take(8),
+                            color = NpvGreen,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
+                }
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider(color = Color(0xFFE2EDE6))
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("DOWNLINK", color = Color(0xFF7A9184), fontSize = 11.sp)
+                        Text("—", fontWeight = FontWeight.Bold)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("UPLINK", color = Color(0xFF7A9184), fontSize = 11.sp)
+                        Text("—", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        AdMobBannerAd()
+    }
+}
+
+@Composable
+private fun MorePage(
+    onSaveDns: (String, String) -> Unit,
+    onOpenTelegram: () -> Unit,
+    onOpenYoutube: () -> Unit,
+    onOpenVpnSettings: () -> Unit
+) {
+    val ctx = LocalContext.current
+    var primary by remember { mutableStateOf(DnsPrefs.primary(ctx)) }
+    var secondary by remember { mutableStateOf(DnsPrefs.secondary(ctx)) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("MORE", fontWeight = FontWeight.Bold, color = NpvGreen, fontSize = 18.sp)
+        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.dns_settings), fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(primary, { primary = it }, label = { Text("Primary DNS") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(secondary, { secondary = it }, label = { Text("Secondary DNS") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("1.1.1.1" to "1.0.0.1", "8.8.8.8" to "8.8.4.4", "9.9.9.9" to "149.112.112.112").forEach { (a, b) ->
+                        AssistChip(onClick = { primary = a; secondary = b }, label = { Text(a, fontSize = 11.sp) })
+                    }
+                }
+                Button(onClick = { onSaveDns(primary, secondary) }, colors = ButtonDefaults.buttonColors(containerColor = NpvGreen)) {
+                    Text("Save DNS")
+                }
+            }
+        }
+        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTelegram)) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Send, null, tint = NpvGreen)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.telegram_channel), fontWeight = FontWeight.SemiBold)
+                    Text("News and updates", color = Color(0xFF6B7F72), fontSize = 13.sp)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
+            }
+        }
+        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenYoutube)) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PlayCircle, null, tint = NpvGreen)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.youtube_channel), fontWeight = FontWeight.SemiBold)
+                    Text("@radouane_tech", color = Color(0xFF6B7F72), fontSize = 13.sp)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
+            }
+        }
+        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenVpnSettings)) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.VpnKey, null, tint = NpvGreen)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("System VPN profiles", fontWeight = FontWeight.SemiBold)
+                    Text("Open Android VPN settings", color = Color(0xFF6B7F72), fontSize = 13.sp)
+                }
+                Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("ABOUT", color = Color(0xFF7A9184), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text("Xray Tunnel 1.4.0", color = Color(0xFF4A6354), fontSize = 13.sp)
+    }
+}
+
 @Composable
 private fun Hero(
     state: VpnState,
@@ -1174,7 +1486,7 @@ private fun Hero(
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(
                 Brush.horizontalGradient(
                     listOf(
@@ -1183,9 +1495,9 @@ private fun Hero(
                     )
                 )
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
         ConnectButton(
@@ -1196,16 +1508,16 @@ private fun Hero(
 
         Column(
             Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Box(
                     Modifier
-                        .size(7.dp)
+                        .size(8.dp)
                         .clip(CircleShape)
                         .background(statusColor)
                 )
@@ -1218,7 +1530,7 @@ private fun Hero(
                             else -> R.string.disconnected
                         }
                     ),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
                     maxLines = 1,
@@ -1229,21 +1541,21 @@ private fun Hero(
 
             Text(
                 serverName ?: stringResource(R.string.no_server_selected),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = cs.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Compact remaining time + "+1 hour" button.
+        // Compact remaining time + "+1 hour" button in the free space beside the status.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 TimeCredit.format(remainingCredit),
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 color = if (remainingCredit > 0L) cs.primary else cs.error
@@ -1252,14 +1564,14 @@ private fun Hero(
             FilledTonalButton(
                 onClick = onWatchReward,
                 modifier = Modifier
-                    .height(26.dp)
+                    .height(28.dp)
                     .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
-                contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(8.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(12.dp))
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(13.dp))
                 Spacer(Modifier.width(2.dp))
-                Text(stringResource(R.string.reward_plus_one_hour), fontSize = 10.sp, maxLines = 1)
+                Text(stringResource(R.string.reward_plus_one_hour), fontSize = 11.sp, maxLines = 1)
             }
         }
     }
@@ -1285,8 +1597,8 @@ private fun ConnectButton(
     Button(
         onClick = onClick,
         enabled = state != VpnState.Connecting,
-        modifier = modifier.height(48.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.height(54.dp),
+        shape = RoundedCornerShape(17.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = color,
             contentColor = Color.White,
@@ -1294,10 +1606,10 @@ private fun ConnectButton(
             disabledContentColor = Color.White
         ),
         elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 3.dp,
+            defaultElevation = 4.dp,
             pressedElevation = 1.dp
         ),
-        contentPadding = PaddingValues(horizontal = 10.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp)
     ) {
 
         Text(
@@ -1372,7 +1684,7 @@ private fun ServerRow(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected)
                 cs.primaryContainer
@@ -1382,35 +1694,35 @@ private fun ServerRow(
         border = if (selected)
             BorderStroke(1.5.dp, cs.primary)
         else
-            BorderStroke(1.dp, cs.outline.copy(alpha = 0.35f))
+            BorderStroke(1.dp, cs.outline.copy(alpha = 0.45f))
     ) {
 
         Row(
             Modifier.padding(
-                start = 10.dp,
-                end = 2.dp,
-                top = 7.dp,
-                bottom = 7.dp
+                start = 12.dp,
+                end = 4.dp,
+                top = 10.dp,
+                bottom = 10.dp
             ),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
                 Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     protocolLabel(s.protocol),
                     color = accent,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
 
             Column(Modifier.weight(1f)) {
 
@@ -1418,7 +1730,7 @@ private fun ServerRow(
                     s.name,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -1429,8 +1741,7 @@ private fun ServerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall,
-                        color = cs.onSurfaceVariant,
-                        fontSize = 11.sp
+                        color = cs.onSurfaceVariant
                     )
                 }
 
@@ -1438,9 +1749,8 @@ private fun ServerRow(
                     s.networkInfo(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = cs.onSurfaceVariant,
-                    fontSize = 11.sp
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant
                 )
             }
 
@@ -1449,46 +1759,32 @@ private fun ServerRow(
                     Icons.Default.CheckCircle,
                     null,
                     tint = cs.primary,
-                    modifier = Modifier
-                        .padding(horizontal = 2.dp)
-                        .size(20.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
             }
 
             if (s.isEditable) {
-                IconButton(
-                    onClick = onShare,
-                    modifier = Modifier.size(36.dp)
-                ) {
+                IconButton(onClick = onShare) {
                     Icon(
                         Icons.Default.Share,
                         stringResource(R.string.share_server),
-                        tint = cs.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        tint = cs.onSurfaceVariant
                     )
                 }
 
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier.size(36.dp)
-                ) {
+                IconButton(onClick = onEdit) {
                     Icon(
                         Icons.Default.Edit,
                         stringResource(R.string.edit_server),
-                        tint = cs.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        tint = cs.onSurfaceVariant
                     )
                 }
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(36.dp)
-                ) {
+                IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
                         stringResource(R.string.delete),
-                        tint = cs.error,
-                        modifier = Modifier.size(18.dp)
+                        tint = cs.error
                     )
                 }
             } else if (s.isDeletable) {
@@ -1497,20 +1793,16 @@ private fun ServerRow(
                     Icons.Default.Lock,
                     stringResource(R.string.locked_file_server),
                     Modifier
-                        .padding(start = 8.dp, end = 2.dp)
-                        .size(16.dp),
+                        .padding(start = 12.dp, end = 4.dp)
+                        .size(18.dp),
                     tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
                 )
 
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(36.dp)
-                ) {
+                IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
                         stringResource(R.string.delete),
-                        tint = cs.error,
-                        modifier = Modifier.size(18.dp)
+                        tint = cs.error
                     )
                 }
             } else {
@@ -1518,8 +1810,8 @@ private fun ServerRow(
                     Icons.Default.Lock,
                     stringResource(R.string.locked_server),
                     Modifier
-                        .padding(horizontal = 10.dp)
-                        .size(16.dp),
+                        .padding(horizontal = 12.dp)
+                        .size(18.dp),
                     tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
@@ -1628,8 +1920,10 @@ private fun LogsPage(
     }
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
 
-    val bg = Color(0xFF0F172A)
-    val dim = Color(0xFF64748B)
+    val bg = Color(0xFFF3F7F4)
+    val card = Color.White
+    val dim = Color(0xFF6B7F72)
+    val titleColor = Color(0xFF1A2E22)
     val dot = when (state) {
         VpnState.Connected -> ConnectedGreen
         VpnState.Connecting -> ConnectingAmber
@@ -1651,16 +1945,16 @@ private fun LogsPage(
                 Spacer(Modifier.width(10.dp))
                 Text(
                     stringResource(R.string.conn_log_title),
-                    color = Color(0xFFE2E8F0),
+                    color = titleColor,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(stringResource(R.string.conn_log_copy), color = Color(0xFF93C5FD), fontSize = 13.sp)
+                    Text(stringResource(R.string.conn_log_copy), color = NpvGreen, fontSize = 13.sp)
                 }
                 TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(stringResource(R.string.conn_log_clear), color = Color(0xFF93C5FD), fontSize = 13.sp)
+                    Text(stringResource(R.string.conn_log_clear), color = NpvGreen, fontSize = 13.sp)
                 }
             }
 
@@ -1678,19 +1972,25 @@ private fun LogsPage(
                     )
                 }
             } else {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = card,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .verticalScroll(scroll),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                        .verticalScroll(scroll)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     lines.forEach { l ->
                         val color = when (l.level) {
-                            ConnLog.Level.OK -> Color(0xFF34D399)
-                            ConnLog.Level.WARN -> Color(0xFFFBBF24)
-                            ConnLog.Level.ERROR -> Color(0xFFF87171)
+                            ConnLog.Level.OK -> Color(0xFF15803D)
+                            ConnLog.Level.WARN -> Color(0xFFB45309)
+                            ConnLog.Level.ERROR -> Color(0xFFDC2626)
                             ConnLog.Level.DEBUG -> dim
-                            ConnLog.Level.INFO -> Color(0xFFCBD5E1)
+                            ConnLog.Level.INFO -> Color(0xFF1A2E22)
                         }
                         Row {
                             Text(
@@ -1711,6 +2011,7 @@ private fun LogsPage(
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -1736,8 +2037,8 @@ private fun ConnLogPanel(
     }
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
 
-    val bg = Color(0xFF0F172A)
-    val dim = Color(0xFF64748B)
+    val bg = Color.White
+    val dim = Color(0xFF6B7F72)
     val dot = when (state) {
         VpnState.Connected -> ConnectedGreen
         VpnState.Connecting -> ConnectingAmber
@@ -1757,16 +2058,16 @@ private fun ConnLogPanel(
                     Spacer(Modifier.width(8.dp))
                     Text(
                         stringResource(R.string.conn_log_title),
-                        color = Color(0xFFE2E8F0),
+                        color = Color(0xFF1A2E22),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text(stringResource(R.string.conn_log_copy), color = Color(0xFF93C5FD), fontSize = 12.sp)
+                        Text(stringResource(R.string.conn_log_copy), color = NpvGreen, fontSize = 12.sp)
                     }
                     TextButton(onClick = onClear, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text(stringResource(R.string.conn_log_clear), color = Color(0xFF93C5FD), fontSize = 12.sp)
+                        Text(stringResource(R.string.conn_log_clear), color = NpvGreen, fontSize = 12.sp)
                     }
                     if (onHide != null) {
                         IconButton(onClick = onHide, modifier = Modifier.size(32.dp)) {
