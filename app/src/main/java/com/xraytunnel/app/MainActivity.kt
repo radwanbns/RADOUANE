@@ -614,23 +614,42 @@ fun MainScreen(vm: MainViewModel) {
         val isYoutube = url.contains("youtube.com", ignoreCase = true) ||
             url.contains("youtu.be", ignoreCase = true)
         val uri = android.net.Uri.parse(url)
-        try {
-            if (isYoutube) {
+        // YouTube app often ignores @handle and opens Home — prefer a browser.
+        if (isYoutube) {
+            val browsers = listOf(
+                "com.android.chrome",
+                "com.chrome.beta",
+                "com.sec.android.app.sbrowser",
+                "org.mozilla.firefox",
+                "com.opera.browser",
+                "com.microsoft.emmx"
+            )
+            for (pkg in browsers) {
                 try {
                     ctx.startActivity(
                         Intent(Intent.ACTION_VIEW, uri)
-                            .setPackage("com.google.android.youtube")
+                            .setPackage(pkg)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                     return
                 } catch (_: Exception) {
                 }
             }
+        }
+        try {
             ctx.startActivity(
                 Intent(Intent.ACTION_VIEW, uri)
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (_: Exception) {
+            try {
+                ctx.startActivity(
+                    Intent(Intent.ACTION_VIEW, uri)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -667,34 +686,43 @@ fun MainScreen(vm: MainViewModel) {
                     scrolledContainerColor = Color.Transparent
                 ),
                 actions = {
-                    IconButton(onClick = { menu = true }) {
-                        Icon(Icons.Default.MoreVert, null)
-                    }
-
-                    DropdownMenu(
-                        expanded = menu,
-                        onDismissRequest = { menu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(stringResource(R.string.import_clipboard))
-                            },
-                            onClick = {
-                                menu = false
-                                importClipboard()
-                            }
-                        )
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(stringResource(R.string.delete_imported))
-                            },
-                            onClick = {
-                                menu = false
-                                confirmClear = true
-                            }
-                        )
-
+                    if (selectedTab == 1) {
+                        IconButton(onClick = { menu = true }) {
+                            Icon(Icons.Default.MoreVert, null)
+                        }
+                        DropdownMenu(
+                            expanded = menu,
+                            onDismissRequest = { menu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.import_clipboard)) },
+                                onClick = {
+                                    menu = false
+                                    importClipboard()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.import_file)) },
+                                onClick = {
+                                    menu = false
+                                    importFile()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.export_file)) },
+                                onClick = {
+                                    menu = false
+                                    exportAllDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.delete_imported)) },
+                                onClick = {
+                                    menu = false
+                                    confirmClear = true
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -831,22 +859,24 @@ fun MainScreen(vm: MainViewModel) {
                         Spacer(Modifier.width(8.dp))
 
                         Box {
-                            FilledTonalButton(
+                            Button(
                                 onClick = { addMenu = true },
                                 contentPadding = PaddingValues(
                                     horizontal = 14.dp,
                                     vertical = 8.dp
                                 ),
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = NpvGreen,
+                                    contentColor = Color.White
+                                )
                             ) {
                                 Icon(
                                     Icons.Default.Add,
                                     null,
                                     Modifier.size(18.dp)
                                 )
-
                                 Spacer(Modifier.width(5.dp))
-
                                 Text(stringResource(R.string.add_server))
                             }
 
@@ -855,21 +885,18 @@ fun MainScreen(vm: MainViewModel) {
                                 onDismissRequest = { addMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.paste)) },
+                                    text = { Text(stringResource(R.string.protocol_v2ray)) },
                                     onClick = {
                                         addMenu = false
-                                        importClipboard()
+                                        newServer = Server(
+                                            name = "V2Ray",
+                                            protocol = "vless",
+                                            port = 443,
+                                            network = "tcp",
+                                            security = "tls"
+                                        )
                                     }
                                 )
-
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.import_file)) },
-                                    onClick = {
-                                        addMenu = false
-                                        importFile()
-                                    }
-                                )
-
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.protocol_ssh)) },
                                     onClick = {
@@ -883,7 +910,6 @@ fun MainScreen(vm: MainViewModel) {
                                         )
                                     }
                                 )
-
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.protocol_openvpn)) },
                                     onClick = {
@@ -898,49 +924,7 @@ fun MainScreen(vm: MainViewModel) {
                                         )
                                     }
                                 )
-
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.protocol_v2ray)) },
-                                    onClick = {
-                                        addMenu = false
-                                        newServer = Server(
-                                            name = "V2Ray",
-                                            protocol = "vless",
-                                            port = 443,
-                                            network = "tcp",
-                                            security = "tls"
-                                        )
-                                    }
-                                )
                             }
-                        }
-                    }
-
-                    // 4. IMPORT / EXPORT FILE BUTTONS.
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilledTonalButton(
-                            onClick = ::importFile,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(stringResource(R.string.import_file), maxLines = 1)
-                        }
-
-                        FilledTonalButton(
-                            onClick = { exportAllDialog = true },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Share, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(stringResource(R.string.export_file), maxLines = 1)
                         }
                     }
                 }
