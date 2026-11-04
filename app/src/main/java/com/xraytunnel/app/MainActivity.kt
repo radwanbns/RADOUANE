@@ -670,6 +670,26 @@ fun MainScreen(vm: MainViewModel) {
 
                         DropdownMenuItem(
                             text = {
+                                Text(stringResource(R.string.import_file))
+                            },
+                            onClick = {
+                                menu = false
+                                importFile()
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(stringResource(R.string.export_file))
+                            },
+                            onClick = {
+                                menu = false
+                                exportAllDialog = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = {
                                 Text(stringResource(R.string.delete_imported))
                             },
                             onClick = {
@@ -743,28 +763,26 @@ fun MainScreen(vm: MainViewModel) {
                 Modifier.fillMaxSize()
             ) {
 
-                // Connection header.
+                // Connection header (compact to show more servers).
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
 
                     // 1. VPN CONNECT BUTTON AT THE TOP.
                     Hero(state, selected?.name, remainingCredit, ::watchReward, ::toggle)
 
-                    // 3. SERVER LIST HEADER AND UPDATE BUTTON.
+                    // 2. SERVER LIST HEADER AND ACTIONS.
                     Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
+                        Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
 
                         Text(
                             "${stringResource(R.string.servers)} (${servers.size})",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f)
                         )
@@ -772,41 +790,46 @@ fun MainScreen(vm: MainViewModel) {
                         FilledTonalIconButton(
                             onClick = vm::updateAll,
                             enabled = !updating,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             if (updating) {
                                 CircularProgressIndicator(
-                                    Modifier.size(18.dp),
+                                    Modifier.size(16.dp),
                                     strokeWidth = 2.dp
                                 )
                             } else {
                                 Icon(
                                     Icons.Default.Refresh,
-                                    stringResource(R.string.update_servers)
+                                    stringResource(R.string.update_servers),
+                                    Modifier.size(20.dp)
                                 )
                             }
                         }
 
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
 
                         Box {
                             FilledTonalButton(
                                 onClick = { addMenu = true },
                                 contentPadding = PaddingValues(
-                                    horizontal = 14.dp,
-                                    vertical = 8.dp
+                                    horizontal = 12.dp,
+                                    vertical = 6.dp
                                 ),
-                                shape = RoundedCornerShape(14.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(38.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Add,
                                     null,
-                                    Modifier.size(18.dp)
+                                    Modifier.size(16.dp)
                                 )
 
-                                Spacer(Modifier.width(5.dp))
+                                Spacer(Modifier.width(4.dp))
 
-                                Text(stringResource(R.string.add_server))
+                                Text(
+                                    stringResource(R.string.add_server),
+                                    fontSize = 13.sp
+                                )
                             }
 
                             DropdownMenu(
@@ -874,34 +897,6 @@ fun MainScreen(vm: MainViewModel) {
                             }
                         }
                     }
-
-                    // 4. IMPORT / EXPORT FILE BUTTONS.
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilledTonalButton(
-                            onClick = ::importFile,
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(stringResource(R.string.import_file), maxLines = 1)
-                        }
-
-                        FilledTonalButton(
-                            onClick = { exportAllDialog = true },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Share, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(stringResource(R.string.export_file), maxLines = 1)
-                        }
-                    }
                 }
 
                 // SERVER LIST.
@@ -920,12 +915,12 @@ fun MainScreen(vm: MainViewModel) {
                             .fillMaxWidth()
                             .weight(1f),
                         contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 2.dp,
-                            bottom = 32.dp
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 4.dp,
+                            bottom = 16.dp
                         ),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         items(servers, key = { it.id }) { s ->
 
@@ -1179,7 +1174,7 @@ private fun Hero(
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(
                 Brush.horizontalGradient(
                     listOf(
@@ -1188,9 +1183,9 @@ private fun Hero(
                     )
                 )
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
 
         ConnectButton(
@@ -1201,16 +1196,16 @@ private fun Hero(
 
         Column(
             Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     Modifier
-                        .size(8.dp)
+                        .size(7.dp)
                         .clip(CircleShape)
                         .background(statusColor)
                 )
@@ -1223,7 +1218,7 @@ private fun Hero(
                             else -> R.string.disconnected
                         }
                     ),
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
                     maxLines = 1,
@@ -1234,21 +1229,21 @@ private fun Hero(
 
             Text(
                 serverName ?: stringResource(R.string.no_server_selected),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = cs.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Compact remaining time + "+1 hour" button in the free space beside the status.
+        // Compact remaining time + "+1 hour" button.
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Text(
                 TimeCredit.format(remainingCredit),
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 color = if (remainingCredit > 0L) cs.primary else cs.error
@@ -1257,14 +1252,14 @@ private fun Hero(
             FilledTonalButton(
                 onClick = onWatchReward,
                 modifier = Modifier
-                    .height(28.dp)
+                    .height(26.dp)
                     .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(10.dp)
+                contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(13.dp))
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(12.dp))
                 Spacer(Modifier.width(2.dp))
-                Text(stringResource(R.string.reward_plus_one_hour), fontSize = 11.sp, maxLines = 1)
+                Text(stringResource(R.string.reward_plus_one_hour), fontSize = 10.sp, maxLines = 1)
             }
         }
     }
@@ -1290,8 +1285,8 @@ private fun ConnectButton(
     Button(
         onClick = onClick,
         enabled = state != VpnState.Connecting,
-        modifier = modifier.height(54.dp),
-        shape = RoundedCornerShape(17.dp),
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = color,
             contentColor = Color.White,
@@ -1299,10 +1294,10 @@ private fun ConnectButton(
             disabledContentColor = Color.White
         ),
         elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 4.dp,
+            defaultElevation = 3.dp,
             pressedElevation = 1.dp
         ),
-        contentPadding = PaddingValues(horizontal = 12.dp)
+        contentPadding = PaddingValues(horizontal = 10.dp)
     ) {
 
         Text(
@@ -1377,7 +1372,7 @@ private fun ServerRow(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected)
                 cs.primaryContainer
@@ -1387,35 +1382,35 @@ private fun ServerRow(
         border = if (selected)
             BorderStroke(1.5.dp, cs.primary)
         else
-            BorderStroke(1.dp, cs.outline.copy(alpha = 0.45f))
+            BorderStroke(1.dp, cs.outline.copy(alpha = 0.35f))
     ) {
 
         Row(
             Modifier.padding(
-                start = 12.dp,
-                end = 4.dp,
-                top = 10.dp,
-                bottom = 10.dp
+                start = 10.dp,
+                end = 2.dp,
+                top = 7.dp,
+                bottom = 7.dp
             ),
             verticalAlignment = Alignment.CenterVertically
         ) {
 
             Box(
                 Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     protocolLabel(s.protocol),
                     color = accent,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
 
             Column(Modifier.weight(1f)) {
 
@@ -1423,7 +1418,7 @@ private fun ServerRow(
                     s.name,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -1434,7 +1429,8 @@ private fun ServerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelSmall,
-                        color = cs.onSurfaceVariant
+                        color = cs.onSurfaceVariant,
+                        fontSize = 11.sp
                     )
                 }
 
@@ -1442,8 +1438,9 @@ private fun ServerRow(
                     s.networkInfo(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = cs.onSurfaceVariant
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                    fontSize = 11.sp
                 )
             }
 
@@ -1452,32 +1449,46 @@ private fun ServerRow(
                     Icons.Default.CheckCircle,
                     null,
                     tint = cs.primary,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 2.dp)
+                        .size(20.dp)
                 )
             }
 
             if (s.isEditable) {
-                IconButton(onClick = onShare) {
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         Icons.Default.Share,
                         stringResource(R.string.share_server),
-                        tint = cs.onSurfaceVariant
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                IconButton(onClick = onEdit) {
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         Icons.Default.Edit,
                         stringResource(R.string.edit_server),
-                        tint = cs.onSurfaceVariant
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                IconButton(onClick = onDelete) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         Icons.Default.Delete,
                         stringResource(R.string.delete),
-                        tint = cs.error
+                        tint = cs.error,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             } else if (s.isDeletable) {
@@ -1486,16 +1497,20 @@ private fun ServerRow(
                     Icons.Default.Lock,
                     stringResource(R.string.locked_file_server),
                     Modifier
-                        .padding(start = 12.dp, end = 4.dp)
-                        .size(18.dp),
+                        .padding(start = 8.dp, end = 2.dp)
+                        .size(16.dp),
                     tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
                 )
 
-                IconButton(onClick = onDelete) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         Icons.Default.Delete,
                         stringResource(R.string.delete),
-                        tint = cs.error
+                        tint = cs.error,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             } else {
@@ -1503,8 +1518,8 @@ private fun ServerRow(
                     Icons.Default.Lock,
                     stringResource(R.string.locked_server),
                     Modifier
-                        .padding(horizontal = 12.dp)
-                        .size(18.dp),
+                        .padding(horizontal = 10.dp)
+                        .size(16.dp),
                     tint = cs.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
