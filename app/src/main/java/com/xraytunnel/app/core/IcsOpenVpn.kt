@@ -1,24 +1,5 @@
-Claude
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Icsopenvpn · KT
 package com.xraytunnel.app.core
- 
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ComponentName
@@ -37,7 +18,7 @@ import de.blinkt.openvpn.core.ProfileManager
 import de.blinkt.openvpn.core.VPNLaunchHelper
 import de.blinkt.openvpn.core.VpnStatus
 import java.io.StringReader
- 
+
 /**
  * غلاف حول مكتبة ics-openvpn (OpenVPN for Android) — عميل OpenVPN حقيقي (مصافحة TLS،
  * إنشاء واجهة tun، تمرير كل الترافيك، إعادة اتصال تلقائي عند تغيّر الشبكة).
@@ -49,7 +30,7 @@ import java.io.StringReader
  * لذلك لا يُشغَّل معه نواة Xray؛ XrayVpnService تبقى فقط كمتحكّم (إشعار + عدّاد الوقت + الحالة).
  */
 object IcsOpenVpn {
- 
+
     sealed class Status {
         object Connecting : Status()
         object Connected : Status()
@@ -58,10 +39,10 @@ object IcsOpenVpn {
         data class Failed(val message: String) : Status()
         object Stopped : Status()
     }
- 
+
     private var listener: VpnStatus.StateListener? = null
     private var sawActive = false
- 
+
     /**
      * إشعار ics-openvpn إلزامي (خدمة مقدمة) ولا يمكن حذفه، لكن نخفضه لأدنى أهمية: بلا أيقونة في شريط
      * الحالة وفي قسم الإشعارات الصامتة، فيبقى إشعار التطبيق "متصل" هو الظاهر.
@@ -82,7 +63,7 @@ object IcsOpenVpn {
             }
         } catch (_: Throwable) {}
     }
- 
+
     /** يحلّل ملف .ovpn ويبدأ الاتصال. يرمي استثناءً برسالة مفهومة عند خطأ في الملف. */
     fun start(ctx: Context, server: Server, forwardPort: Int = 0) {
         val parser = ConfigParser()
@@ -99,13 +80,13 @@ object IcsOpenVpn {
                     "تأكد أن الشهادات والمفاتيح مضمّنة داخل الملف (<ca> <cert> <key> <tls-auth>) وليست ملفات خارجية."
             )
         }
- 
+
         profile.mName = server.name.ifBlank { "OpenVPN" }
- 
+
         // بيانات الدخول المحفوظة في السيرفر (إن وُجد auth-user-pass في الملف)
         if (server.username.isNotBlank()) profile.mUsername = server.username
         if (server.secret.isNotBlank()) profile.mPassword = server.secret
- 
+
         // تعديلات المستخدم على العنوان/المنفذ/البروتوكول تُطبَّق على أول remote
         profile.mConnections.firstOrNull()?.let { c ->
             if (forwardPort > 0) {
@@ -123,16 +104,16 @@ object IcsOpenVpn {
                 }
             }
         }
- 
+
         // استثناء التطبيق نفسه (الإعلانات/تحديث السيرفرات) من النفق، كما كان مع Xray
         profile.mAllowedAppsVpn.add(ctx.packageName)
         profile.mAllowedAppsVpnAreDisallowed = true
- 
+
         quietNotifications(ctx)
         ProfileManager.setTemporaryProfile(ctx, profile)
         VPNLaunchHelper.startOpenVpn(profile, ctx, "XrayTunnel", true)
     }
- 
+
     /** يسجّل مستمعاً لحالة الاتصال ويحوّلها إلى [Status]. */
     @Synchronized
     fun observe(onDetail: (String) -> Unit = {}, onStatus: (Status) -> Unit) {
@@ -161,24 +142,24 @@ object IcsOpenVpn {
                 }
                 if (status != null) onStatus(status)
             }
- 
+
             override fun setConnectedVPN(uuid: String?) {}
         }
         listener = l
         VpnStatus.addStateListener(l)
     }
- 
+
     /** آخر أسطر من سجل ics-openvpn (لتشخيص التعليق). */
     fun recentLog(ctx: Context, n: Int = 8): String = try {
         VpnStatus.getlogbuffer().takeLast(n).joinToString("\n") { it.getString(ctx) }
     } catch (_: Throwable) { "" }
- 
+
     @Synchronized
     fun removeObserver() {
         listener?.let { VpnStatus.removeStateListener(it) }
         listener = null
     }
- 
+
     /** يوقف اتصال ics-openvpn (يربط الخدمة ثم يستدعي stopVPN). */
     fun stop(ctx: Context) {
         removeObserver()
@@ -203,5 +184,3 @@ object IcsOpenVpn {
         } catch (_: Throwable) {}
     }
 }
- 
-Claude finished the response
