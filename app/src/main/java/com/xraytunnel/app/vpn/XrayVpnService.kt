@@ -235,7 +235,9 @@ class XrayVpnService : VpnService() {
      */
     private fun startRealOvpn(server: com.xraytunnel.app.data.Server) {
         icsActive = true
-        IcsOpenVpn.observe { st ->
+        IcsOpenVpn.observe(onDetail = { d ->
+            if (icsActive && state.value == VpnState.Connecting) lastError.value = "OpenVPN: $d"
+        }) { st ->
             scope.launch {
                 vpnMutex.withLock {
                     if (!icsActive) return@withLock
@@ -278,6 +280,20 @@ class XrayVpnService : VpnService() {
             ovpnTunnel = fwd
         }
         IcsOpenVpn.start(this, server, forwardPort)
+
+        // مراقب: إن بقي الاتصال معلّقاً نعرض أين توقف بالضبط
+        scope.launch {
+            kotlinx.coroutines.delay(40_000L)
+            if (icsActive && state.value == VpnState.Connecting) {
+                val msg = buildString {
+                    append("لم يكتمل الاتصال بعد 40 ثانية.\n")
+                    ovpnTunnel?.let { append(it.diagnostics()).append('\n') }
+                    append(IcsOpenVpn.recentLog(this@XrayVpnService))
+                }
+                android.util.Log.w("XrayVpnService", msg)
+                lastError.value = msg
+            }
+        }
     }
 
     /** Stop only the tunnel; keep this foreground service alive for an immediate reconnect. */
