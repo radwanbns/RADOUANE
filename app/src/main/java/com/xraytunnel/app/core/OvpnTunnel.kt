@@ -117,16 +117,26 @@ class OvpnTunnel(
         var remote: Socket? = null
         try {
             client.tcpNoDelay = true
+            try { client.keepAlive = true } catch (_: Exception) {}
+            try { client.soTimeout = 0 } catch (_: Exception) {}
+
             val ep = createEndpoint()
             remote = ep.socket
-            val done = java.util.concurrent.CountDownLatch(1)
+            try { remote.tcpNoDelay = true } catch (_: Exception) {}
+            try { remote.keepAlive = true } catch (_: Exception) {}
+            try { remote.soTimeout = 0 } catch (_: Exception) {}
+
             val cin = client.getInputStream()
             val cout = client.getOutputStream()
-            Thread { try { pipe(cin, ep.output) } finally { done.countDown() } }.apply { isDaemon = true }.start()
-            Thread { try { pipe(ep.input, cout) } finally { done.countDown() } }.apply { isDaemon = true }.start()
-            done.await()
+            // نبدأ الاتجاهين فوراً حتى لا تضيع بايتات مصافحة OpenVPN
+            val t1 = Thread({ try { pipe(cin, ep.output) } catch (_: Exception) {} }, "ovpn-up").apply { isDaemon = true }
+            val t2 = Thread({ try { pipe(ep.input, cout) } catch (_: Exception) {} }, "ovpn-down").apply { isDaemon = true }
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
         } catch (e: Exception) {
-            if (!closed.get()) Log.d(TAG, "raw client: ${e.message}")
+            if (!closed.get()) Log.e(TAG, "raw client: ${e.message}")
         } finally {
             try { client.close() } catch (_: Exception) {}
             try { remote?.close() } catch (_: Exception) {}
