@@ -67,7 +67,7 @@ class OvpnTunnel(
 
     fun start(): Int {
         try {
-            if (server.address.isBlank()) throw TunnelException("عنوان السيرفر فارغ.")
+            if (server.address.isBlank()) throw TunnelException("Server address is empty.")
             if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
 
             // نختبر الاتصال + البايلود أولاً
@@ -90,11 +90,11 @@ class OvpnTunnel(
      */
     fun startRawForward(): Int {
         try {
-            if (server.address.isBlank()) throw TunnelException("عنوان السيرفر فارغ.")
+            if (server.address.isBlank()) throw TunnelException("Server address is empty.")
             if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
-            ConnLog.add(ConnLog.Level.INFO, "فحص مسار البايلود مسبقاً…")
+            ConnLog.add(ConnLog.Level.INFO, "Pre-checking payload path…")
             testConnection()
-            ConnLog.add(ConnLog.Level.OK, "نجح فحص البايلود")
+            ConnLog.add(ConnLog.Level.OK, "Payload check succeeded")
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
             listener = ss
             pool.execute { acceptLoop(ss, raw = true) }
@@ -259,7 +259,7 @@ class OvpnTunnel(
         val useProxy = server.proxyHost.isNotBlank()
         val proxyPort = server.proxyPort.takeIf { it in 1..65535 } ?: 8080
         val targetPort = server.port.takeIf { it in 1..65535 }
-            ?: throw TunnelException("منفذ السيرفر غير صالح (1–65535).")
+            ?: throw TunnelException("Invalid server port (1–65535).")
 
         ConnLog.add(
             ConnLog.Level.INFO,
@@ -341,7 +341,7 @@ class OvpnTunnel(
     }
 
     private fun sendPayload(o: OutputStream, forProxy: Boolean) {
-        ConnLog.add(ConnLog.Level.INFO, "إرسال البايلود (${expectedResponses(forProxy)} طلب HTTP)")
+        ConnLog.add(ConnLog.Level.INFO, "Sending payload (${expectedResponses(forProxy)} HTTP request(s))")
         val parts = Regex("\\[split\\]", RegexOption.IGNORE_CASE).split(buildPayload(forProxy))
         parts.forEachIndexed { i, part ->
             if (part.isNotEmpty()) {
@@ -533,7 +533,7 @@ class OvpnTunnel(
                 if (leading) {
                     if (firstDown.get().isEmpty()) {
                         firstDown.set(preview(buffer, r))
-                        ConnLog.add(ConnLog.Level.DEBUG, "أول بايتات من السيرفر: ${firstDown.get()}")
+                        ConnLog.add(ConnLog.Level.DEBUG, "First bytes from server: ${firstDown.get()}")
                     }
                     while (off < r && isTextByte(buffer[off])) off++
                     if (off > 0) ConnLog.add(ConnLog.Level.WARN, "تجاوز نص عادي ($off بايت) قبل بيانات OpenVPN")
@@ -580,9 +580,9 @@ class OvpnTunnel(
         val msg = e.message ?: e.javaClass.simpleName
         return when {
             msg.contains("timeout", true) || msg.contains("Timed out", true) ->
-                "انتهت مهلة الاتصال. تحقق من العنوان والمنفذ والبايلود."
+                "Connection timed out. Check address, port, and payload."
             msg.contains("Connection refused", true) ->
-                "رفض الاتصال. تأكد من العنوان والمنفذ."
+                "Connection refused. Check address and port."
             msg.contains("Unable to resolve", true) || msg.contains("UnknownHost", true) ->
                 "تعذر حل اسم المضيف."
             else -> msg
