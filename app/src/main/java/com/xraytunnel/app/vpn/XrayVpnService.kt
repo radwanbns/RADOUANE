@@ -48,6 +48,8 @@ class XrayVpnService : VpnService() {
     private var ovpnTunnel: OvpnTunnel? = null
     /** true أثناء تشغيل OpenVPN الحقيقي عبر ics-openvpn (هو من ينشئ واجهة tun وليس هذه الخدمة). */
     @Volatile private var icsActive = false
+    /** آخر حالة نصية من OpenVPN (WAIT, AUTH, ...)؛ تُعرض مرة واحدة في رسالة المراقب فقط. */
+    @Volatile private var icsDetail = ""
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
     // Serialize start/stop/switch so a server switch cannot race an in-progress connection.
@@ -235,9 +237,7 @@ class XrayVpnService : VpnService() {
      */
     private fun startRealOvpn(server: com.xraytunnel.app.data.Server) {
         icsActive = true
-        IcsOpenVpn.observe(onDetail = { d ->
-            if (icsActive && state.value == VpnState.Connecting) lastError.value = "OpenVPN: $d"
-        }) { st ->
+        IcsOpenVpn.observe(onDetail = { d -> icsDetail = d }) { st ->
             scope.launch {
                 vpnMutex.withLock {
                     if (!icsActive) return@withLock
@@ -286,7 +286,7 @@ class XrayVpnService : VpnService() {
             kotlinx.coroutines.delay(40_000L)
             if (icsActive && state.value == VpnState.Connecting) {
                 val msg = buildString {
-                    append("لم يكتمل الاتصال بعد 40 ثانية.\n")
+                    append("لم يكتمل الاتصال بعد 40 ثانية (حالة OpenVPN: $icsDetail).\n")
                     ovpnTunnel?.let { append(it.diagnostics()).append('\n') }
                     append(IcsOpenVpn.recentLog(this@XrayVpnService))
                 }
