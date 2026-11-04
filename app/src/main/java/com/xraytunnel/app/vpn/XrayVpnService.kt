@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.xraytunnel.app.MainActivity
 import com.xraytunnel.app.R
 import com.xraytunnel.app.core.ConfigBuilder
+import com.xraytunnel.app.core.ConnLog
 import com.xraytunnel.app.core.IcsOpenVpn
 import com.xraytunnel.app.core.OvpnTunnel
 import com.xraytunnel.app.core.SshTunnel
@@ -74,7 +75,7 @@ class XrayVpnService : VpnService() {
         try {
             connectivityManager.registerNetworkCallback(request, physicalNetworkCallback)
         } catch (e: Exception) {
-            lastError.value = "تعذر مراقبة اتصال الإنترنت: ${e.message ?: e.javaClass.simpleName}"
+            setError("تعذر مراقبة اتصال الإنترنت: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
@@ -95,7 +96,7 @@ class XrayVpnService : VpnService() {
         scope.launch {
             vpnMutex.withLock {
                 if (!icsActive && state.value != VpnState.Disconnected && !hasPhysicalNetwork()) {
-                    lastError.value = "انقطع اتصال الإنترنت؛ تم إيقاف نفق VPN."
+                    setError("انقطع اتصال الإنترنت؛ تم إيقاف نفق VPN.")
                     stopVpn()
                 }
             }
@@ -132,13 +133,14 @@ class XrayVpnService : VpnService() {
 
     private fun startVpnInternal() {
         if (state.value != VpnState.Disconnected) return
+        ConnLog.clear()
         if (TimeCredit.remaining(this) <= 0L) {
-            lastError.value = "انتهى الوقت المتاح. شاهد إعلاناً مكافأة لإضافة ساعة كاملة."
+            setError("انتهى الوقت المتاح. شاهد إعلاناً مكافأة لإضافة ساعة كاملة.")
             stopVpn()
             return
         }
         if (!hasPhysicalNetwork()) {
-            lastError.value = "لا توجد شبكة Wi-Fi أو بيانات هاتف متاحة."
+            setError("لا توجد شبكة Wi-Fi أو بيانات هاتف متاحة.")
             stopVpn()
             return
         }
@@ -146,6 +148,7 @@ class XrayVpnService : VpnService() {
         lastError.value = null
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
+        ConnLog.add(ConnLog.Level.INFO, "بدء الاتصال: ${server.name} (${server.protocol.uppercase()})")
         try {
             if (server.isRealOvpn) {
                 startRealOvpn(server)
@@ -154,38 +157,40 @@ class XrayVpnService : VpnService() {
             // SSH أو OVPN: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء البايلود/TLS فوراً.
             val config = when (server.protocol) {
                 "ssh" -> {
+                    ConnLog.add(ConnLog.Level.INFO, "تشغيل نفق SSH…")
                     val tunnel = SshTunnel(
                         server,
                         onFatal = { msg ->
                             scope.launch {
                                 vpnMutex.withLock {
                                     if (state.value != VpnState.Disconnected) {
-                                        lastError.value = msg
+                                        setError(msg)
                                         stopVpn()
                                     }
                                 }
                             }
                         },
-                        onWarning = { msg -> lastError.value = msg }
+                        onWarning = { msg -> setError(msg) }
                     )
                     val port = tunnel.start()
                     sshTunnel = tunnel
                     ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
                 }
                 "ovpn" -> {
+                    ConnLog.add(ConnLog.Level.INFO, "تشغيل نفق Payload (وضع قديم، SOCKS)…")
                     val tunnel = OvpnTunnel(
                         server,
                         onFatal = { msg ->
                             scope.launch {
                                 vpnMutex.withLock {
                                     if (state.value != VpnState.Disconnected) {
-                                        lastError.value = msg
+                                        setError(msg)
                                         stopVpn()
                                     }
                                 }
                             }
                         },
-                        onWarning = { msg -> lastError.value = msg }
+                        onWarning = { msg -> setError(msg) }
                     )
                     val port = tunnel.start()
                     ovpnTunnel = tunnel
@@ -193,6 +198,7 @@ class XrayVpnService : VpnService() {
                 }
                 else -> ConfigBuilder.build(server)
             }
+            ConnLog.add(ConnLog.Level.INFO, "إنشاء واجهة VPN (tun)")
             val p = Builder()
                 .setSession("Xray Tunnel")
                 .setMtu(1500)
@@ -205,15 +211,60 @@ class XrayVpnService : VpnService() {
                 .addDisallowedApplication(packageName) // حتى لا يمر اتصال التطبيق نفسه عبر النفق
                 .establish() ?: error("VPN permission not granted")
             pfd = p
+            ConnLog.add(ConnLog.Level.INFO, "تشغيل نواة Xray")
             XrayCore.start(this, config, p.fd)
-             state.value = VpnState.Connected
+            state.value = VpnState.Connected
+            ConnLog.add(ConnLog.Level.OK, "تم الاتصال بنجاح")
             startCreditTicker()
         } catch (e: Throwable) {
-            lastError.value = e.message ?: e.javaClass.simpleName
+            setError(e.message ?: e.javaClass.simpleName)
             stopVpn()
         }
     }
 
+
+    /** يسجّل الخطأ في سجل الاتصال ويعرضه للمستخدم. */
+    private fun setError(msg: String) {
+        ConnLog.add(ConnLog.Level.ERROR, msg)
+        lastError.value = msg
+    }
+
+    private fun friendlyState(s: String): String = when (s.uppercase()) {
+        "NOPROCESS" -> "تهيئة عملية OpenVPN"
+        "CONNECTING" -> "بدء الاتصال"
+        "RESOLVE" -> "حل اسم السيرفر"
+        "TCP_CONNECT" -> "الاتصال بالسيرفر (TCP)"
+        "WAIT" -> "انتظار رد السيرفر"
+        "AUTH" -> "المصادقة وتبادل مفاتيح TLS"
+        "GET_CONFIG" -> "استلام إعدادات الشبكة من السيرفر"
+        "ASSIGN_IP" -> "تعيين عنوان IP للنفق"
+        "ADD_ROUTES" -> "إضافة المسارات"
+        "CONNECTED" -> "تم الاتصال بالسيرفر"
+        "RECONNECTING" -> "إعادة الاتصال"
+        "CONNECTRETRY" -> "إعادة المحاولة بعد قليل"
+        "EXITING" -> "إنهاء الاتصال"
+        else -> s
+    }
+
+    private fun stateLevel(s: String): ConnLog.Level = when (s.uppercase()) {
+        "CONNECTED" -> ConnLog.Level.OK
+        "CONNECTRETRY", "RECONNECTING" -> ConnLog.Level.WARN
+        else -> ConnLog.Level.INFO
+    }
+
+    /** يصنّف سطراً من سجل ics-openvpn ويضيفه (يتجاهل تكرار سطور الحالة). */
+    private fun addIcsLine(line: String) {
+        val l = line.trim()
+        if (l.isEmpty() || l.startsWith("MANAGEMENT: >STATE")) return
+        val level = when {
+            l.startsWith("MANAGEMENT:") -> ConnLog.Level.DEBUG
+            Regex("error|fatal", RegexOption.IGNORE_CASE).containsMatchIn(l) -> ConnLog.Level.ERROR
+            Regex("warning|fail|reset|timeout|bad ", RegexOption.IGNORE_CASE).containsMatchIn(l) -> ConnLog.Level.WARN
+            l.contains("Initialization Sequence Completed") || l.contains("Peer Connection Initiated") -> ConnLog.Level.OK
+            else -> ConnLog.Level.INFO
+        }
+        ConnLog.add(level, l)
+    }
 
     /** يخصم ثانية واحدة فقط أثناء حالة Connected. */
     private fun startCreditTicker() {
@@ -223,7 +274,7 @@ class XrayVpnService : VpnService() {
                 kotlinx.coroutines.delay(1000L)
                 if (state.value != VpnState.Connected) break
                 if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
-                    lastError.value = "انتهى الوقت المتاح؛ تم فصل VPN."
+                    setError("انتهى الوقت المتاح؛ تم فصل VPN.")
                     vpnMutex.withLock { stopVpn() }
                     break
                 }
@@ -237,22 +288,38 @@ class XrayVpnService : VpnService() {
      */
     private fun startRealOvpn(server: com.xraytunnel.app.data.Server) {
         icsActive = true
-        IcsOpenVpn.observe(onDetail = { d -> icsDetail = d }) { st ->
+        icsDetail = ""
+        ConnLog.add(
+            ConnLog.Level.INFO,
+            "الوضع: OpenVPN حقيقي (ics-openvpn)" +
+                if (server.usesPayloadForward) " عبر ممرّر Payload/Proxy" else " (اتصال مباشر)"
+        )
+        var lastShown = ""
+        IcsOpenVpn.observe(onDetail = { d ->
+            icsDetail = d
+            if (d != lastShown) {
+                lastShown = d
+                ConnLog.add(stateLevel(d), friendlyState(d))
+            }
+        }) { st ->
             scope.launch {
                 vpnMutex.withLock {
                     if (!icsActive) return@withLock
                     when (st) {
                         IcsOpenVpn.Status.Connected -> if (state.value != VpnState.Connected) {
                             state.value = VpnState.Connected
+                            ConnLog.add(ConnLog.Level.OK, "تم الاتصال بنجاح — النفق يعمل")
                             startCreditTicker()
                         }
                         IcsOpenVpn.Status.Connecting -> if (state.value == VpnState.Disconnected) {
                             state.value = VpnState.Connecting
                         }
                         // انقطاع شبكة مؤقت: نبقى متصلين ظاهرياً؛ OpenVPN يعيد الاتصال وحده
-                        IcsOpenVpn.Status.Waiting -> {}
+                        IcsOpenVpn.Status.Waiting ->
+                            ConnLog.add(ConnLog.Level.WARN, "انقطاع شبكة مؤقت — OpenVPN ينتظر إعادة الاتصال")
                         is IcsOpenVpn.Status.Failed -> {
                             lastError.value = st.message
+                            ConnLog.add(ConnLog.Level.ERROR, st.message)
                             stopVpn()
                         }
                         IcsOpenVpn.Status.Stopped -> if (state.value != VpnState.Disconnected) stopVpn()
@@ -262,36 +329,49 @@ class XrayVpnService : VpnService() {
         }
         var forwardPort = 0
         if (server.usesPayloadForward) {
+            ConnLog.add(
+                ConnLog.Level.INFO,
+                "تشغيل الممرّر المحلي" +
+                    (if (server.proxyHost.isNotBlank()) " — بروكسي ${server.proxyHost}:${server.proxyPort}" else "") +
+                    (if (server.security == "tls") " — TLS" else "") +
+                    (if (server.network == "ws" || server.payload.isNotBlank()) " — Payload/WS" else "")
+            )
             val fwd = OvpnTunnel(
                 server,
                 onFatal = { msg ->
                     scope.launch {
                         vpnMutex.withLock {
                             if (state.value != VpnState.Disconnected) {
-                                lastError.value = msg
+                                setError(msg)
                                 stopVpn()
                             }
                         }
                     }
                 },
-                onWarning = { msg -> lastError.value = msg }
+                onWarning = { msg -> setError(msg) }
             )
             forwardPort = fwd.startRawForward() // يرمي خطأ مفهوماً إن فشل البايلود/البروكسي/TLS
             ovpnTunnel = fwd
         }
+        ConnLog.add(ConnLog.Level.INFO, "تحليل ملف .ovpn وتشغيل ics-openvpn")
+        IcsOpenVpn.markLogCursor()
         IcsOpenVpn.start(this, server, forwardPort)
 
-        // مراقب: إن بقي الاتصال معلّقاً نعرض أين توقف بالضبط
+        // يضيف سطور سجل ics-openvpn الجديدة إلى سجل الواجهة
+        scope.launch {
+            while (icsActive) {
+                IcsOpenVpn.newLogLines(this@XrayVpnService).forEach { addIcsLine(it) }
+                kotlinx.coroutines.delay(700L)
+            }
+        }
+
+        // مراقب: إن بقي الاتصال معلّقاً نكتب التشخيص في السجل
         scope.launch {
             kotlinx.coroutines.delay(40_000L)
             if (icsActive && state.value == VpnState.Connecting) {
-                val msg = buildString {
-                    append("لم يكتمل الاتصال بعد 40 ثانية (حالة OpenVPN: $icsDetail).\n")
-                    ovpnTunnel?.let { append(it.diagnostics()).append('\n') }
-                    append(IcsOpenVpn.recentLog(this@XrayVpnService))
-                }
-                android.util.Log.w("XrayVpnService", msg)
-                lastError.value = msg
+                ConnLog.add(ConnLog.Level.WARN, "لم يكتمل الاتصال بعد 40 ثانية (حالة OpenVPN: $icsDetail)")
+                ovpnTunnel?.let { ConnLog.add(ConnLog.Level.DEBUG, it.diagnostics()) }
+                lastError.value = "لم يكتمل الاتصال بعد 40 ثانية — راجع سجل الاتصال."
             }
         }
     }
