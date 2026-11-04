@@ -88,4 +88,12 @@
     <string name="nav_home">Home</string>
     <string name="nav_logs">Logs</string>
     <string name="logs_empty">No connection logs yet</string>
+
+    <string name="reward_plus_one_hour">+1 hour</string>
+    <string name="time_expired_toast">Time expired. Watch a rewarded ad to add a full hour.</string>
+    <string name="ad_unavailable">Ad is not available right now, try again later.</string>
+    <string name="notification_connecting">Connecting…</string>
+    <string name="notification_connected">Connected</string>
+    <string name="notification_disconnected">Disconnected</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
 </resources>
