@@ -92,10 +92,13 @@ class OvpnTunnel(
         try {
             if (server.address.isBlank()) throw TunnelException("عنوان السيرفر فارغ.")
             if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
+            ConnLog.add(ConnLog.Level.INFO, "فحص مسار البايلود مسبقاً…")
             testConnection()
+            ConnLog.add(ConnLog.Level.OK, "نجح فحص البايلود")
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
             listener = ss
             pool.execute { acceptLoop(ss, raw = true) }
+            ConnLog.add(ConnLog.Level.OK, "الممرّر المحلي جاهز على 127.0.0.1:${ss.localPort}")
             return ss.localPort
         } catch (e: Throwable) {
             close()
@@ -132,7 +135,8 @@ class OvpnTunnel(
     /** تمرير خام: client(OpenVPN) <-> [payload/proxy/TLS] <-> السيرفر. يُغلَق الطرفان عند انتهاء أي اتجاه. */
     private fun handleRawClient(client: Socket) {
         var remote: Socket? = null
-        rawClients.incrementAndGet()
+        val attempt = rawClients.incrementAndGet()
+        ConnLog.add(ConnLog.Level.INFO, "OpenVPN اتصل بالممرّر المحلي (محاولة #$attempt)")
         try {
             client.tcpNoDelay = true
             val ep = createEndpoint()
@@ -257,6 +261,11 @@ class OvpnTunnel(
         val targetPort = server.port.takeIf { it in 1..65535 }
             ?: throw TunnelException("منفذ السيرفر غير صالح (1–65535).")
 
+        ConnLog.add(
+            ConnLog.Level.INFO,
+            if (useProxy) "اتصال TCP بالبروكسي ${server.proxyHost.trim()}:$proxyPort"
+            else "اتصال TCP بالسيرفر ${server.address}:$targetPort" + if (tlsOn) " (TLS)" else ""
+        )
         val raw = Socket()
         raw.tcpNoDelay = true
         raw.keepAlive = true
@@ -332,6 +341,7 @@ class OvpnTunnel(
     }
 
     private fun sendPayload(o: OutputStream, forProxy: Boolean) {
+        ConnLog.add(ConnLog.Level.INFO, "إرسال البايلود (${expectedResponses(forProxy)} طلب HTTP)")
         val parts = Regex("\\[split\\]", RegexOption.IGNORE_CASE).split(buildPayload(forProxy))
         parts.forEachIndexed { i, part ->
             if (part.isNotEmpty()) {
@@ -384,6 +394,18 @@ class OvpnTunnel(
         return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
+    private fun recordStatus(line: String) {
+        if (line.isBlank()) return
+        statusLines.add(line)
+        val code = Regex("^HTTP/\\S+\\s+(\\d{3})").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val lvl = when {
+            code == 101 -> ConnLog.Level.OK
+            code in 200..299 -> ConnLog.Level.INFO
+            else -> ConnLog.Level.WARN
+        }
+        ConnLog.add(lvl, "ردّ البوابة: $line")
+    }
+
     /** عدد الطلبات HTTP داخل البايلود (كل طلب ينتهي بسطر فارغ)، مثل بايلود "GET ... [crlf][crlf] ACL ... [crlf][crlf]". */
     private fun expectedResponses(forProxy: Boolean): Int {
         val p = buildPayload(forProxy).replace(Regex("\\[split\\]", RegexOption.IGNORE_CASE), "")
@@ -404,7 +426,7 @@ class OvpnTunnel(
             }
             if (head.isEmpty()) break
             n++
-            statusLines.add(head.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
+            recordStatus(head.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
             val status = Regex("^HTTP/\\S+\\s+(\\d{3})").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             if (status == 101) break
             val len = Regex("(?im)^content-length:\\s*(\\d+)").find(head)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -418,7 +440,7 @@ class OvpnTunnel(
                     val next = scanForNextResponse(pin)
                     if (next.isEmpty()) break
                     n++
-                    statusLines.add(next.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
+                    recordStatus(next.lineSequence().firstOrNull()?.trim().orEmpty().take(60))
                     break
                 }
             }
@@ -509,8 +531,12 @@ class OvpnTunnel(
                 bytesDown.addAndGet(r.toLong())
                 var off = 0
                 if (leading) {
-                    if (firstDown.get().isEmpty()) firstDown.set(preview(buffer, r))
+                    if (firstDown.get().isEmpty()) {
+                        firstDown.set(preview(buffer, r))
+                        ConnLog.add(ConnLog.Level.DEBUG, "أول بايتات من السيرفر: ${firstDown.get()}")
+                    }
                     while (off < r && isTextByte(buffer[off])) off++
+                    if (off > 0) ConnLog.add(ConnLog.Level.WARN, "تجاوز نص عادي ($off بايت) قبل بيانات OpenVPN")
                     strippedBytes.addAndGet(off.toLong())
                     if (off < r) leading = false
                 }
