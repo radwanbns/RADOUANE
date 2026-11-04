@@ -700,7 +700,8 @@ fun MainScreen(vm: MainViewModel) {
                         }
                         DropdownMenu(
                             expanded = menu,
-                            onDismissRequest = { menu = false }
+                            onDismissRequest = { menu = false },
+                            containerColor = Color.White
                         ) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.import_clipboard)) },
@@ -890,7 +891,8 @@ fun MainScreen(vm: MainViewModel) {
 
                             DropdownMenu(
                                 expanded = addMenu,
-                                onDismissRequest = { addMenu = false }
+                                onDismissRequest = { addMenu = false },
+                                containerColor = Color.White
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.protocol_v2ray)) },
