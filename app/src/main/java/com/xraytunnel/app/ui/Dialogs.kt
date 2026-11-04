@@ -41,21 +41,22 @@ fun TelegramDialog(onClose: () -> Unit) {
         text = {
             Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.telegram_message), textAlign = TextAlign.Center)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    Defaults.telegramUrl(),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
             }
         },
         confirmButton = {
-            Button(onClick = {
-                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Defaults.telegramUrl()))) }
-                onClose()
-            }) { Text(stringResource(R.string.open_channel)) }
+            Button(
+                onClick = {
+                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Defaults.telegramUrl()))) }
+                    onClose()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = NpvGreen)
+            ) { Text(stringResource(R.string.open_channel)) }
         },
-        dismissButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.later)) } }
+        dismissButton = {
+            TextButton(onClick = onClose, colors = ButtonDefaults.textButtonColors(contentColor = NpvGreen)) {
+                Text(stringResource(R.string.later))
+            }
+        }
     )
 }
 
