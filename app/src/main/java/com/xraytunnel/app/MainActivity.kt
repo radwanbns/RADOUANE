@@ -613,43 +613,51 @@ fun MainScreen(vm: MainViewModel) {
     fun openLink(url: String) {
         val isYoutube = url.contains("youtube.com", ignoreCase = true) ||
             url.contains("youtu.be", ignoreCase = true)
-        val uri = android.net.Uri.parse(url)
-        // YouTube app often ignores @handle and opens Home — prefer a browser.
         if (isYoutube) {
-            val browsers = listOf(
-                "com.android.chrome",
-                "com.chrome.beta",
-                "com.sec.android.app.sbrowser",
-                "org.mozilla.firefox",
-                "com.opera.browser",
-                "com.microsoft.emmx"
-            )
-            for (pkg in browsers) {
+            // Open inside YouTube app (not browser / not home).
+            // Prefer explicit app intents; @handle works better with these forms.
+            val handle = url.substringAfter("@", "").substringBefore("/").substringBefore("?").trim()
+            val candidates = buildList {
+                if (handle.isNotEmpty()) {
+                    add("https://www.youtube.com/@$handle")
+                    add("https://www.youtube.com/@$handle/featured")
+                    add("https://www.youtube.com/@$handle/videos")
+                    add("vnd.youtube://www.youtube.com/@$handle")
+                    add("https://m.youtube.com/@$handle")
+                }
+                add(url)
+            }.distinct()
+            for (candidate in candidates) {
+                val uri = android.net.Uri.parse(candidate)
                 try {
                     ctx.startActivity(
                         Intent(Intent.ACTION_VIEW, uri)
-                            .setPackage(pkg)
+                            .setPackage("com.google.android.youtube")
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                     return
                 } catch (_: Exception) {
                 }
             }
+            // Intent URL scheme forced to YouTube package
+            try {
+                val intentUrl =
+                    "intent://www.youtube.com/@${handle.ifBlank { "radouane_tech" }}#Intent;" +
+                        "scheme=https;package=com.google.android.youtube;end"
+                ctx.startActivity(
+                    Intent.parseUri(intentUrl, Intent.URI_INTENT_SCHEME)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                return
+            } catch (_: Exception) {
+            }
         }
         try {
             ctx.startActivity(
-                Intent(Intent.ACTION_VIEW, uri)
-                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (_: Exception) {
-            try {
-                ctx.startActivity(
-                    Intent(Intent.ACTION_VIEW, uri)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            } catch (_: Exception) {
-            }
         }
     }
 
