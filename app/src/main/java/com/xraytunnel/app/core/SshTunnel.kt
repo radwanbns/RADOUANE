@@ -55,8 +55,8 @@ class SshTunnel(
     /** يتصل بـ SSH (متزامن) ثم يشغّل SOCKS المحلي. يرجع المنفذ المحلي. */
     fun start(): Int {
         try {
-            if (server.username.isBlank()) throw TunnelException("اسم مستخدم SSH فارغ.")
-            if (server.address.isBlank()) throw TunnelException("عنوان سيرفر SSH فارغ.")
+            if (server.username.isBlank()) throw TunnelException("SSH username is empty.")
+            if (server.address.isBlank()) throw TunnelException("SSH server address is empty.")
             if (server.port !in 1..65535) throw TunnelException("منفذ غير صالح.")
             session = connectSession()
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
@@ -106,7 +106,7 @@ class SshTunnel(
                 val s = session
                 if (s != null && s.isConnected) continue
 
-                var lastError = "انقطع اتصال SSH."
+                var lastError = "SSH connection dropped."
                 var ok = false
                 for (attempt in 1..RECONNECT_ATTEMPTS) {
                     if (closed) return
@@ -198,7 +198,7 @@ class SshTunnel(
             } catch (e: Exception) {
                 if (!warned && (e.message ?: "").contains("administratively prohibited", true)) {
                     warned = true
-                    onWarning("سيرفر SSH يمنع تحويل المنافذ (AllowTcpForwarding)؛ لن يعمل الإنترنت عبره.")
+                    onWarning("SSH server disables port forwarding (AllowTcpForwarding); internet will not work through it.")
                 }
                 reply(cout, 5)
                 return
@@ -452,7 +452,7 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
         val sb = StringBuilder()
         while (sb.length < 16_384) {
             val b = pin.read()
-            if (b < 0) throw TunnelException("أغلق السيرفر الاتصال بعد إرسال البايلود.")
+            if (b < 0) throw TunnelException("Server closed the connection after sending the payload.")
             sb.append(b.toChar())
 
             // السيرفر يرد مباشرة ببروتوكول SSH بلا HTTP: أعد البايتات ودع JSch يكمل.
@@ -469,9 +469,9 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
 
         val first = sb.lineSequence().firstOrNull().orEmpty().trim()
         val code = Regex("^HTTP/\\d(?:\\.\\d)?\\s+(\\d{3})").find(first)?.groupValues?.get(1)?.toIntOrNull()
-            ?: throw TunnelException("رد غير متوقع من السيرفر على البايلود: ${first.take(80)}")
+            ?: throw TunnelException("Unexpected server response to payload: ${first.take(80)}")
         if (code !in 100..299) {
-            throw TunnelException("رفض السيرفر البايلود: ${first.take(80)}")
+            throw TunnelException("Server rejected the payload: ${first.take(80)}")
         }
     }
 
