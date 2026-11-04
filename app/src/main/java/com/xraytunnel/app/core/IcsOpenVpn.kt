@@ -70,14 +70,14 @@ object IcsOpenVpn {
         try {
             parser.parseConfig(StringReader(server.ovpnConfig))
         } catch (e: Exception) {
-            throw IllegalStateException("ملف .ovpn غير صالح: ${e.message ?: e.javaClass.simpleName}")
+            throw IllegalStateException("Invalid .ovpn file: ${e.message ?: e.javaClass.simpleName}")
         }
         val profile = try {
             parser.convertProfile()
         } catch (e: Exception) {
             throw IllegalStateException(
-                "تعذّر تحويل ملف .ovpn: ${e.message ?: e.javaClass.simpleName}. " +
-                    "تأكد أن الشهادات والمفاتيح مضمّنة داخل الملف (<ca> <cert> <key> <tls-auth>) وليست ملفات خارجية."
+                "Failed to convert .ovpn file: ${e.message ?: e.javaClass.simpleName}. " +
+                    "Make sure certificates and keys are embedded inside the file (<ca> <cert> <key> <tls-auth>) and not external files."
             )
         }
 
@@ -133,9 +133,9 @@ object IcsOpenVpn {
                     ConnectionStatus.LEVEL_NONETWORK,
                     ConnectionStatus.LEVEL_VPNPAUSED -> if (sawActive) Status.Waiting else null
                     ConnectionStatus.LEVEL_AUTH_FAILED ->
-                        Status.Failed("فشلت المصادقة: تحقق من اسم المستخدم وكلمة المرور.")
+                        Status.Failed("Authentication failed: check your username and password.")
                     ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT ->
-                        Status.Failed("هذا الملف يحتاج بيانات دخول أو كلمة سر مفتاح: أدخلها في حقلي المستخدم/كلمة المرور.")
+                        Status.Failed("This file requires credentials or a key passphrase: enter them in the username/password fields.")
                     // LEVEL_NOTCONNECTED يصل أيضاً قبل البدء؛ نعتمده فقط بعد أن رأينا حالة نشطة
                     ConnectionStatus.LEVEL_NOTCONNECTED -> if (sawActive) Status.Stopped else null
                     else -> null
