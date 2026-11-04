@@ -79,4 +79,10 @@
     <string name="field_ovpn_config">إعداد .ovpn (OpenVPN حقيقي)</string>
     <string name="ovpn_real_hint">OpenVPN حقيقي عبر ics-openvpn. يجب تضمين الشهادات والمفاتيح داخل الملف. أوضاع Payload / WebSocket / Proxy / TLS أدناه مدعومة (تفرض TCP).</string>
     <string name="ovpn_legacy_hint">اتركه فارغاً لوضع Payload/WebSocket القديم (SOCKS وليس عميل OpenVPN حقيقياً).</string>
+    <string name="conn_log_title">سجل الاتصال</string>
+    <string name="conn_log_copy">نسخ</string>
+    <string name="conn_log_clear">مسح</string>
+    <string name="conn_log_show">عرض سجل الاتصال</string>
+    <string name="conn_log_copied">تم نسخ السجل</string>
+    <string name="tunnel_connected">Xray Tunnel Connected</string>
 </resources>
