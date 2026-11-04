@@ -85,4 +85,7 @@
     <string name="conn_log_show">Show connection log</string>
     <string name="conn_log_copied">Log copied</string>
     <string name="tunnel_connected">Xray Tunnel Connected</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_logs">Logs</string>
+    <string name="logs_empty">No connection logs yet</string>
 </resources>
