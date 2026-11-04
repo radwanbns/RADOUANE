@@ -97,6 +97,13 @@ class MainActivity : ComponentActivity() {
     @Volatile var suppressAppOpen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Force English UI regardless of system language
+        val en = Locale.ENGLISH
+        Locale.setDefault(en)
+        val config = Configuration(resources.configuration)
+        config.setLocale(en)
+        @Suppress("DEPRECATION")
+        resources.updateConfiguration(config, resources.displayMetrics)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { XrayTheme { MainScreen(vm) } }
@@ -508,7 +515,7 @@ fun MainScreen(vm: MainViewModel) {
         if (TimeCredit.remaining(ctx) <= 0L) {
             Toast.makeText(
                 ctx,
-                "انتهى الوقت. شاهد إعلاناً مكافأة لإضافة ساعة كاملة.",
+                ctx.getString(R.string.time_expired_toast),
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -615,7 +622,7 @@ fun MainScreen(vm: MainViewModel) {
             },
             onUnavailable = {
                 uiScope.launch {
-                    snack.showSnackbar("الإعلان غير متوفر حالياً، حاول لاحقاً.")
+                    snack.showSnackbar(ctx.getString(R.string.ad_unavailable))
                 }
             }
         )
@@ -1187,7 +1194,7 @@ private fun Hero(
         ConnectButton(
             state,
             onToggle,
-            Modifier.weight(0.9f)
+            Modifier.weight(1f)
         )
 
         Column(
@@ -1217,7 +1224,9 @@ private fun Hero(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = statusColor,
-                    maxLines = 1
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -1253,7 +1262,7 @@ private fun Hero(
             ) {
                 Icon(Icons.Default.PlayArrow, null, Modifier.size(13.dp))
                 Spacer(Modifier.width(2.dp))
-                Text("+1 ساعة", fontSize = 11.sp, maxLines = 1)
+                Text(stringResource(R.string.reward_plus_one_hour), fontSize = 11.sp, maxLines = 1)
             }
         }
     }
@@ -1305,10 +1314,12 @@ private fun ConnectButton(
                 else ->
                     stringResource(R.string.connect).uppercase()
             },
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 1.1.sp,
-            maxLines = 1
+            letterSpacing = 0.4.sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1575,14 +1586,10 @@ private fun shareText(
     text: String,
     title: String
 ) {
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, text)
-    }
-
-    context.startActivity(
-        Intent.createChooser(send, title)
-    )
+    // Copy only — no share sheet
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText(title, text))
+    Toast.makeText(context, context.getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show()
 }
 
 
