@@ -51,11 +51,14 @@ class OvpnTunnel(
     private val bytesUp = AtomicLong(0)     // OpenVPN -> السيرفر
     private val bytesDown = AtomicLong(0)   // السيرفر -> OpenVPN
     private val statusLines = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private val firstDown = java.util.concurrent.atomic.AtomicReference("")
+    private val strippedBytes = AtomicLong(0)
 
     fun diagnostics(): String {
         val lines = statusLines.toList().takeLast(4).joinToString(" | ").ifBlank { "لا ردود HTTP" }
         return "الممرّر: اتصالات OpenVPN=${rawClients.get()}، ردود=[$lines]، " +
-            "↑${bytesUp.get()}B ↓${bytesDown.get()}B"
+            "↑${bytesUp.get()}B ↓${bytesDown.get()}B، نص مُزال=${strippedBytes.get()}B\n" +
+            "أول بايتات من السيرفر: ${firstDown.get().ifBlank { "لا شيء" }}"
     }
     private var listener: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r ->
@@ -138,7 +141,7 @@ class OvpnTunnel(
             val cin = client.getInputStream()
             val cout = client.getOutputStream()
             Thread { try { pipe(cin, ep.output, bytesUp) } finally { done.countDown() } }.apply { isDaemon = true }.start()
-            Thread { try { pipe(ep.input, cout, bytesDown) } finally { done.countDown() } }.apply { isDaemon = true }.start()
+            Thread { try { pipeDownFiltered(ep.input, cout) } finally { done.countDown() } }.apply { isDaemon = true }.start()
             done.await()
         } catch (e: Exception) {
             if (!closed.get()) Log.d(TAG, "raw client: ${e.message}")
@@ -489,6 +492,49 @@ class OvpnTunnel(
             if (r <= 0) break
             left -= r
         }
+    }
+
+    /**
+     * اتجاه السيرفر -> OpenVPN. بعض البوابات ترسل نصاً عادياً (ASCII) بعد رد 101 وقبل بيانات OpenVPN،
+     * فيفسّر OpenVPN أول حرفين كطول حزمة ("Co" = 17263) ويقطع الاتصال. بيانات OpenVPN على TCP
+     * تبدأ ببايت طول صغير (0..7) فلا تلتبس بالنص؛ لذلك نتجاوز أي نص قابل للطباعة في بداية التدفق.
+     */
+    private fun pipeDownFiltered(input: InputStream, output: OutputStream) {
+        val buffer = ByteArray(8192)
+        var leading = true
+        try {
+            while (!closed.get()) {
+                val r = input.read(buffer)
+                if (r == -1) break
+                bytesDown.addAndGet(r.toLong())
+                var off = 0
+                if (leading) {
+                    if (firstDown.get().isEmpty()) firstDown.set(preview(buffer, r))
+                    while (off < r && isTextByte(buffer[off])) off++
+                    strippedBytes.addAndGet(off.toLong())
+                    if (off < r) leading = false
+                }
+                if (off < r) {
+                    output.write(buffer, off, r - off)
+                    output.flush()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun isTextByte(b: Byte): Boolean {
+        val v = b.toInt() and 0xFF
+        return v in 0x20..0x7E || v == 0x0D || v == 0x0A
+    }
+
+    private fun preview(buf: ByteArray, n: Int): String {
+        val m = minOf(n, 40)
+        val hex = (0 until m).joinToString(" ") { "%02x".format(buf[it]) }
+        val asc = (0 until m).map {
+            val c = buf[it].toInt() and 0xFF
+            if (c in 0x20..0x7E) c.toChar() else '.'
+        }.joinToString("")
+        return "$hex | $asc"
     }
 
     private fun pipe(input: InputStream, output: OutputStream, counter: AtomicLong? = null) {
