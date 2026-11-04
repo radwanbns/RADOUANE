@@ -231,6 +231,14 @@ class OvpnTunnel(
     }
 
     // ---------------------------------------------------------------- إنشاء الاتصال + Payload
+    /**
+     * يبني الوصلة الخام التي يمر عليها OpenVPN:
+     * TCP → [HTTP Proxy CONNECT (أي منفذ)] → [TLS + SNI] → [بايلود / WebSocket] → بايتات OpenVPN.
+     *
+     * نفس أسلوب HTTP Custom القديم:
+     * - البروكسي يستخدم CONNECT قياسي دائماً (يدعم كل المنافذ 1–65535) ما لم يكن البايلود نفسه طلب CONNECT.
+     * - بعد نجاح البروكسي (وTLS إن وُجد) يُرسل بايلود WebSocket/المخصص ثم يُمرَّر الترافيك الخام.
+     */
     private fun createEndpoint(): Endpoint {
         val payloadOn = server.network == "ws" || server.payload.isNotBlank()
         val tlsOn = server.security == "tls"
@@ -253,12 +261,33 @@ class OvpnTunnel(
         var output: OutputStream = raw.getOutputStream()
         var input: InputStream = raw.getInputStream()
 
+        // هل البايلود نفسه طلب CONNECT مخصص للبروكسي؟
+        val payloadIsConnect = server.payload.isNotBlank() &&
+            server.payload.contains("CONNECT", ignoreCase = true)
+
         if (useProxy) {
-            // TCP → HTTP Proxy (CONNECT أو بايلود) → [TLS] → [بايلود إن وُجد]
+            // 1) طلب البروكسي: CONNECT قياسي (أي منفذ) أو بايلود يحتوي CONNECT
             val pin = PushbackInputStream(raw.getInputStream(), 8192)
-            // إذا كان هناك بايلود مخصص يُستخدم كطلب البروكسي، وإلا CONNECT قياسي لأي منفذ
-            sendPayload(output, forProxy = true)
+            if (payloadIsConnect) {
+                sendPayload(output, forProxy = true)
+            } else {
+                // CONNECT قياسي — يدعم جميع المنافذ (مثل HTTP Custom)
+                val hostPort = if (server.address.contains(":")) {
+                    "[${server.address}]:$targetPort"
+                } else {
+                    "${server.address}:$targetPort"
+                }
+                val connectReq =
+                    "CONNECT $hostPort HTTP/1.1\r\n" +
+                    "Host: $hostPort\r\n" +
+                    "Proxy-Connection: Keep-Alive\r\n" +
+                    "Connection: Keep-Alive\r\n\r\n"
+                output.write(connectReq.toByteArray(Charsets.UTF_8))
+                output.flush()
+            }
             readHttpResponse(pin)
+
+            // 2) TLS فوق نفق البروكسي (إن طُلب)
             if (tlsOn) {
                 sock = wrapTls(raw)
                 output = sock.getOutputStream()
@@ -266,14 +295,17 @@ class OvpnTunnel(
             } else {
                 input = pin
             }
-            // إذا استُخدم CONNECT القياسي وكان هناك بايلود إضافي للنفق، أرسله بعد نجاح البروكسي
-            if (payloadOn && server.payload.isNotBlank() &&
-                !server.payload.contains("CONNECT", ignoreCase = true)
-            ) {
-                // تم إرسال CONNECT فقط؛ نرسل البايلود الآن عبر النفق
-                // (إذا كان البايلود نفسه هو طلب البروكسي فقد أُرسل أعلاه)
+
+            // 3) بايلود/WebSocket بعد نجاح البروكسي (+TLS) — هذا كان مفقوداً سابقاً
+            if (payloadOn && !payloadIsConnect) {
+                val pin2 = if (input is PushbackInputStream) input
+                           else PushbackInputStream(input, 8192)
+                sendPayload(output, forProxy = false)
+                readHttpResponse(pin2)
+                input = pin2
             }
         } else {
+            // بدون بروكسي: [TLS] ثم [بايلود/WS]
             if (tlsOn) {
                 sock = wrapTls(raw)
                 output = sock.getOutputStream()
@@ -329,16 +361,20 @@ class OvpnTunnel(
         val hostPort = if (server.address.contains(":")) "[${server.address}]:${server.port}" else "${server.address}:${server.port}"
         val path = server.path.ifBlank { "/" }
 
+        // بايلود مخصص إن وُجد، وإلا افتراضي حسب السياق
         val custom = if (server.network == "ws" || server.payload.isNotBlank()) server.payload else ""
         var p = custom.ifBlank {
             if (forProxy) {
-                "CONNECT $hostPort HTTP/1.1\r\nHost: $hostPort\r\nProxy-Connection: Keep-Alive\r\n\r\n"
+                // CONNECT قياسي — يدعم أي منفذ وجهة (مثل HTTP Custom)
+                "CONNECT $hostPort HTTP/1.1\r\nHost: $hostPort\r\nProxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n"
             } else {
+                // WebSocket upgrade افتراضي (مثل HTTP Custom القديم)
                 "GET $path HTTP/1.1\r\nHost: $hostName\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
                         "Sec-WebSocket-Key: ${wsKey()}\r\nSec-WebSocket-Version: 13\r\n\r\n"
             }
         }
 
+        // تطبيع الأسطر ثم استبدال التسلسلات المكتوبة نصاً
         p = p.replace("\r\n", "\n").replace("\n", "\r\n")
         p = p.replace("\\r\\n", "\r\n").replace("\\r", "\r").replace("\\n", "\n")
 
@@ -351,7 +387,7 @@ class OvpnTunnel(
         p = tag(p, "[path]", path)
         p = tag(p, "[sni]", server.sni.ifBlank { hostName })
         p = tag(p, "[protocol]", "HTTP/1.1")
-        p = tag(p, "[ua]", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
+        p = tag(p, "[ua]", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
         p = tag(p, "[ws_key]", wsKey())
 
         return p
