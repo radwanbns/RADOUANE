@@ -79,4 +79,10 @@
     <string name="field_ovpn_config">.ovpn config (real OpenVPN)</string>
     <string name="ovpn_real_hint">Real OpenVPN via ics-openvpn. Certificates/keys must be inline. Payload / WebSocket / Proxy / TLS modes below are supported (forces TCP).</string>
     <string name="ovpn_legacy_hint">Leave empty for the old Payload/WebSocket SOCKS mode (not a real OpenVPN client).</string>
+    <string name="conn_log_title">Connection log</string>
+    <string name="conn_log_copy">Copy</string>
+    <string name="conn_log_clear">Clear</string>
+    <string name="conn_log_show">Show connection log</string>
+    <string name="conn_log_copied">Log copied</string>
+    <string name="tunnel_connected">Xray Tunnel Connected</string>
 </resources>
