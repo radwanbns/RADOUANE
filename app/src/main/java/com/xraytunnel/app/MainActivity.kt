@@ -1647,15 +1647,12 @@ private fun ServerRow(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected)
-                cs.primaryContainer
-            else
-                cs.surfaceVariant
+            containerColor = cs.surface
         ),
         border = if (selected)
             BorderStroke(1.5.dp, cs.primary)
         else
-            BorderStroke(1.dp, cs.outline.copy(alpha = 0.45f))
+            BorderStroke(1.dp, cs.outline.copy(alpha = 0.35f))
     ) {
 
         Row(
