@@ -52,6 +52,9 @@ class XrayVpnService : VpnService() {
     @Volatile private var icsActive = false
     /** آخر حالة نصية من OpenVPN (WAIT, AUTH, ...)؛ تُعرض مرة واحدة في رسالة المراقب فقط. */
     @Volatile private var icsDetail = ""
+    @Volatile private var notifStatusLine = ""
+    @Volatile private var notifDownText = "—"
+    @Volatile private var notifUpText = "—"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
     // Serialize start/stop/switch so a server switch cannot race an in-progress connection.
@@ -146,6 +149,9 @@ class XrayVpnService : VpnService() {
             return
         }
         state.value = VpnState.Connecting
+        notifStatusLine = "Connecting..."
+        notifDownText = "—"
+        notifUpText = "—"
         updateNotification()
         lastError.value = null
         val server = Repo.get(this).selectedServer()
@@ -269,19 +275,42 @@ class XrayVpnService : VpnService() {
         ConnLog.add(level, l)
     }
 
-    /** يخصم ثانية واحدة فقط أثناء حالة Connected. */
+    /** يخصم الوقت ويحدّث السرعات في إشعار Xray Tunnel. */
     private fun startCreditTicker() {
         creditTicker?.cancel()
         creditTicker = scope.launch {
+            var prevRx = android.net.TrafficStats.getTotalRxBytes().coerceAtLeast(0L)
+            var prevTx = android.net.TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
             while (state.value == VpnState.Connected) {
                 kotlinx.coroutines.delay(1000L)
                 if (state.value != VpnState.Connected) break
+                val rx = android.net.TrafficStats.getTotalRxBytes().coerceAtLeast(prevRx)
+                val tx = android.net.TrafficStats.getTotalTxBytes().coerceAtLeast(prevTx)
+                notifDownText = formatNotifSpeed(rx - prevRx)
+                notifUpText = formatNotifSpeed(tx - prevTx)
+                prevRx = rx
+                prevTx = tx
+                if (notifStatusLine.isBlank() || notifStatusLine == "Connected to server") {
+                    notifStatusLine = "Connected"
+                }
+                updateNotification()
                 if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
                     setError("Available time ran out; VPN disconnected.")
                     vpnMutex.withLock { stopVpn() }
                     break
                 }
             }
+            notifDownText = "—"
+            notifUpText = "—"
+        }
+    }
+
+    private fun formatNotifSpeed(bytesPerSec: Long): String {
+        val b = if (bytesPerSec < 0L) 0L else bytesPerSec
+        return when {
+            b >= 1_000_000L -> String.format("%.1f MB/s", b / 1_000_000.0)
+            b >= 1_000L -> String.format("%.1f KB/s", b / 1_000.0)
+            else -> "$b B/s"
         }
     }
 
@@ -300,10 +329,12 @@ class XrayVpnService : VpnService() {
         var lastShown = ""
         IcsOpenVpn.observe(onDetail = { d ->
             icsDetail = d
+            notifStatusLine = friendlyState(d)
             if (d != lastShown) {
                 lastShown = d
-                ConnLog.add(stateLevel(d), friendlyState(d))
+                ConnLog.add(stateLevel(d), notifStatusLine)
             }
+            updateNotification()
         }) { st ->
             scope.launch {
                 vpnMutex.withLock {
@@ -420,18 +451,34 @@ class XrayVpnService : VpnService() {
         val stop = PendingIntent.getService(this, 1,
             Intent(this, XrayVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val statusText = when (state.value) {
-            VpnState.Connected -> getString(R.string.notification_connected)
-            VpnState.Connecting -> getString(R.string.notification_connecting)
+            VpnState.Connected -> {
+                val base = notifStatusLine.ifBlank { getString(R.string.notification_connected) }
+                if (icsActive || notifDownText != "—") {
+                    "$base  ↓ $notifDownText  ↑ $notifUpText"
+                } else base
+            }
+            VpnState.Connecting -> {
+                notifStatusLine.ifBlank { getString(R.string.notification_connecting) }
+            }
             else -> getString(R.string.notification_disconnected)
+        }
+        val big = if (state.value == VpnState.Connected) {
+            "${getString(R.string.app_name)}
+$statusText
+↓ $notifDownText   ↑ $notifUpText"
+        } else {
+            statusText
         }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(statusText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(big))
             .setContentIntent(open)
             .addAction(0, getString(R.string.disconnect), stop)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .build()
     }
 
