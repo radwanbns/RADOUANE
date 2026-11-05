@@ -50,7 +50,7 @@ object IcsOpenVpn {
      */
     private fun quietNotifications(ctx: Context) {
         try {
-            val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager ?: return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // Hide OpenVPN-ics status icons as much as the system allows (FGS still requires a silent notif).
                 val ids = listOf(
@@ -111,7 +111,7 @@ object IcsOpenVpn {
     /** Call while connected to keep OpenVPN status icons from lingering. */
     fun suppressIcons(ctx: Context) {
         try {
-            val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager ?: return
             suppressOpenVpnIcons(nm)
             quietNotifications(ctx)
         } catch (_: Throwable) {}
