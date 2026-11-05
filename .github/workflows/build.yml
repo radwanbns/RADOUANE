@@ -42,23 +42,26 @@ jobs:
           set -euxo pipefail
           MODULE="www.bamsoftware.com/git/dnstt.git/dnstt-client"
 
+          NDK_BIN="$ANDROID_HOME/ndk/30.0.14904198/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$NDK_BIN/clang"
+
           build_dnstt() {
             ABI="$1"
             GOARCH="$2"
             GOARM="$3"
+            CC_NAME="$4"
             OUT="app/src/main/jniLibs/$ABI"
             GOPATH_DIR="$RUNNER_TEMP/gopath-$ABI"
             mkdir -p "$OUT" "$GOPATH_DIR"
 
             if [ -n "$GOARM" ]; then
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" GOARM="$GOARM" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" GOARM="$GOARM" CGO_ENABLED=1 CC="$NDK_BIN/$CC_NAME" \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$DNSTT_VERSION"
             else
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" CGO_ENABLED=1 CC="$NDK_BIN/$CC_NAME" \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$DNSTT_VERSION"
             fi
 
-            # Go places cross-compiled executables under bin/<goos>_<goarch>/.
             BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
             if [ -z "$BINARY" ] || [ ! -s "$BINARY" ]; then
               echo "::error::dnstt-client was not produced for $ABI"
@@ -72,10 +75,10 @@ jobs:
             readelf -h "$OUT/libdnstt.so" | grep -E "Class:|Machine:"
           }
 
-          build_dnstt arm64-v8a arm64 ""
-          build_dnstt armeabi-v7a arm 7
-          build_dnstt x86_64 amd64 ""
-          build_dnstt x86 386 ""
+          build_dnstt arm64-v8a arm64 "" aarch64-linux-android24-clang
+          build_dnstt armeabi-v7a arm 7 armv7a-linux-androideabi24-clang
+          build_dnstt x86_64 amd64 "" x86_64-linux-android24-clang
+          build_dnstt x86 386 "" i686-linux-android24-clang
 
           echo "Built SlowDNS cores:"
           find app/src/main/jniLibs -type f -name libdnstt.so -ls
