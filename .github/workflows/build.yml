@@ -50,21 +50,22 @@ jobs:
             CLANG="$3"
             GOARM="$4"
             OUT="app/src/main/jniLibs/$ABI"
-            BIN_DIR="$RUNNER_TEMP/dnstt-bin-$ABI"
-            mkdir -p "$OUT" "$BIN_DIR"
+            GOPATH_DIR="$RUNNER_TEMP/gopath-$ABI"
+            mkdir -p "$OUT" "$GOPATH_DIR"
 
             if [ -n "$GOARM" ]; then
-              env GOOS=android GOARCH="$GOARCH" GOARM="$GOARM" CGO_ENABLED=1 \
-                CC="$TOOLCHAIN/$CLANG" GOBIN="$BIN_DIR" \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" GOARM="$GOARM" CGO_ENABLED=1 \
+                CC="$TOOLCHAIN/$CLANG" \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$DNSTT_VERSION"
             else
-              env GOOS=android GOARCH="$GOARCH" CGO_ENABLED=1 \
-                CC="$TOOLCHAIN/$CLANG" GOBIN="$BIN_DIR" \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=android GOARCH="$GOARCH" CGO_ENABLED=1 \
+                CC="$TOOLCHAIN/$CLANG" \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$DNSTT_VERSION"
             fi
 
-            test -s "$BIN_DIR/dnstt-client"
-            cp "$BIN_DIR/dnstt-client" "$OUT/libdnstt.so"
+            BINARY="$GOPATH_DIR/bin/dnstt-client"
+            test -s "$BINARY"
+            cp "$BINARY" "$OUT/libdnstt.so"
             chmod 755 "$OUT/libdnstt.so"
             file "$OUT/libdnstt.so"
           }
