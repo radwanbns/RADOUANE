@@ -1,4 +1,4 @@
-name: Build Android
+name: Build Android APK
 
 on:
   workflow_dispatch:
@@ -67,3 +67,22 @@ jobs:
           build_dnstt armeabi-v7a arm 7
           build_dnstt arm64-v8a arm64 ""
           build_dnstt x86_64 amd64 ""
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RADOUANE-SlowDNS-APK
+          path: |
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
