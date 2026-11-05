@@ -1800,6 +1800,7 @@ private fun Server.networkInfo(): String = buildString {
     if (security != "none") {
         append(" · ").append(security.uppercase())
     }
+    if (protocol == "ssh" && udpgw) append(" · UDP")
 }
 
 private fun formatSpeed(bytesPerSec: Long): String {
