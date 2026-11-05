@@ -491,17 +491,8 @@ fun MainScreen(vm: MainViewModel) {
 
     fun chooseServer(id: String) {
         if (id == selectedId) return
-
-        if (state != VpnState.Disconnected) {
-            ctx.startService(
-                Intent(ctx, XrayVpnService::class.java).apply {
-                    action = XrayVpnService.ACTION_SWITCH_SERVER
-                    putExtra(XrayVpnService.EXTRA_SERVER_ID, id)
-                }
-            )
-        } else {
-            vm.select(id)
-        }
+        // Selecting a server must never start or switch a VPN connection.
+        vm.select(id)
     }
 
     val vpnPerm = rememberLauncherForActivityResult(
@@ -1557,7 +1548,7 @@ private fun ConnectButton(
 
     Button(
         onClick = onClick,
-        enabled = state != VpnState.Connecting,
+        enabled = true,
         modifier = modifier.height(54.dp),
         shape = RoundedCornerShape(17.dp),
         colors = ButtonDefaults.buttonColors(
