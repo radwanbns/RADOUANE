@@ -848,20 +848,24 @@ fun MainScreen(vm: MainViewModel) {
                             modifier = Modifier.weight(1f)
                         )
 
-                        FilledTonalIconButton(
+                        IconButton(
                             onClick = vm::updateAll,
                             enabled = !updating,
-                            modifier = Modifier.size(42.dp)
+                            modifier = Modifier
+                                .size(42.dp)
+                                .background(NpvGreen, RoundedCornerShape(14.dp))
                         ) {
                             if (updating) {
                                 CircularProgressIndicator(
                                     Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 2.dp,
+                                    color = Color.White
                                 )
                             } else {
                                 Icon(
                                     Icons.Default.Refresh,
-                                    stringResource(R.string.update_servers)
+                                    stringResource(R.string.update_servers),
+                                    tint = Color.White
                                 )
                             }
                         }
