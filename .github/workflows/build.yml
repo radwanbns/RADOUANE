@@ -32,7 +32,6 @@ jobs:
             ABI="$1"
             ARCH="$2"
             ARM="$3"
-            GOOS_VALUE="linux"
 
             echo "Building dnstt for $ABI"
 
@@ -43,16 +42,26 @@ jobs:
             mkdir -p "$GOPATH_DIR"
 
             if [ -n "$ARM" ]; then
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS="$GOOS_VALUE" GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             else
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS="$GOOS_VALUE" GOARCH="$ARCH" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             fi
 
-            cp "$GOPATH_DIR/bin/$GOOS_VALUE"_"$ARCH"/dnstt-client "$OUT/libdnstt.so"
+            BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
+
+            if [ -z "$BINARY" ]; then
+              echo "ERROR: dnstt-client binary not found for $ABI"
+              find "$GOPATH_DIR/bin" -maxdepth 4 -print
+              exit 1
+            fi
+
+            cp "$BINARY" "$OUT/libdnstt.so"
             chmod 755 "$OUT/libdnstt.so"
             test -s "$OUT/libdnstt.so"
+
+            echo "Successfully built $ABI"
           }
 
           build_dnstt armeabi-v7a arm 7
