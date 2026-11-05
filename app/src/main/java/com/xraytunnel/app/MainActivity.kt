@@ -110,6 +110,23 @@ class MainActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         resources.updateConfiguration(config, resources.displayMetrics)
         super.onCreate(savedInstanceState)
+
+        // Android 10–12 may require READ_EXTERNAL_STORAGE to restore a
+        // Downloads backup created before the app was reinstalled.
+        if (Build.VERSION.SDK_INT <= 32) {
+            val storagePermissions = mutableListOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= 28) {
+                storagePermissions += Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }
+            val missing = storagePermissions.filter {
+                ContextCompat.checkSelfPermission(this, it) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                requestPermissions(missing.toTypedArray(), 7401)
+            }
+        }
+
         enableEdgeToEdge()
         setContent { XrayTheme { MainScreen(vm) } }
 
