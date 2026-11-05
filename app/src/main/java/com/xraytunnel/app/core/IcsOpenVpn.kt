@@ -77,26 +77,24 @@ object IcsOpenVpn {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 nm.activeNotifications.forEach { sbn ->
-                    // Keep only XrayTunnel foreground notification (id = 1, title app name).
+                    // Keep only XrayTunnel VPN notification (id = 1).
                     if (sbn.id == 1) return@forEach
                     val title = sbn.notification.extras
                         ?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
                     val text = sbn.notification.extras
                         ?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString().orEmpty()
-                    val big = sbn.notification.extras
-                        ?.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
                     val channel = if (Build.VERSION.SDK_INT >= 26) sbn.notification.channelId.orEmpty() else ""
-                    val looksOpenVpn =
+                    val looksVpnRelated =
                         title.contains("OpenVPN", true) ||
                             text.contains("OpenVPN", true) ||
-                            big.contains("OpenVPN", true) ||
                             title.contains("OVPN", true) ||
                             channel.contains("openvpn", true) ||
                             sbn.tag?.contains("openvpn", true) == true ||
-                            // ics-openvpn status style: "↓ … kbit/s"
                             text.contains("kbit/s", true) ||
-                            text.contains("Mbit/s", true)
-                    if (looksOpenVpn) {
+                            text.contains("Mbit/s", true) ||
+                            text.contains("bit/s", true) ||
+                            title.contains("VPN", true) && !title.contains("Xray", true)
+                    if (looksVpnRelated) {
                         try { nm.cancel(sbn.tag, sbn.id) } catch (_: Exception) {}
                         try { nm.cancel(sbn.id) } catch (_: Exception) {}
                     }
