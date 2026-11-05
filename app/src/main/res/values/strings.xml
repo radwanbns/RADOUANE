@@ -101,4 +101,14 @@
     <string name="nav_more">More</string>
     <string name="dns_settings">Custom DNS</string>
     <string name="dns_saved">DNS saved. Reconnect VPN to apply.</string>
+    <string name="field_dns_ns">SlowDNS nameserver (NS domain)</string>
+    <string name="field_dns_key">SlowDNS public key</string>
+    <string name="dns_key_hint">64 hex characters (the server.pub of the dnstt server)</string>
+    <string name="field_dns_resolver">DNS resolver (optional)</string>
+    <string name="dns_resolver_hint">IP[:port] for UDP (default 8.8.8.8:53), https://… for DoH or tls://host for DoT</string>
+    <string name="slowdns_hint">SlowDNS tunnels SSH through DNS queries. The address and port above are not used to connect; the NS domain and resolver are. The username and password are your SSH account\'s.</string>
+    <string name="slowdns_required">SlowDNS needs the NS domain, a 64-character hex public key, and the SSH username</string>
+    <string name="field_udp_over_ssh">UDP over SSH (UDPGW) — works in every mode</string>
+    <string name="field_udpgw_port">UDPGW port on the server</string>
+    <string name="udpgw_hint">Default 7300. The server must run badvpn-udpgw on 127.0.0.1:port</string>
 </resources>
