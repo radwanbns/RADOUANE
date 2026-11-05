@@ -199,8 +199,10 @@ class XrayVpnService : VpnService() {
                         onWarning = { msg -> setError(msg) },
                         appContext = applicationContext
                     )
-                    val port = tunnel.start()
+                    // Publish the tunnel before its blocking DNS/SSH handshake so STOP
+                    // can close dnstt and disconnect an in-progress JSch session immediately.
                     sshTunnel = tunnel
+                    val port = tunnel.start()
                     if (stopRequested) {
                         tunnel.close()
                         sshTunnel = null
