@@ -77,19 +77,19 @@ fun XrayTheme(content: @Composable () -> Unit) {
             onBackground = Color(0xFF1A2E22),
             surface = Color.White,
             onSurface = Color(0xFF1A2E22),
-            surfaceVariant = NpvGreenSoft,
+            surfaceVariant = Color.White,
             onSurfaceVariant = Color(0xFF4A6354),
             surfaceTint = NpvGreen,
             inverseSurface = Color(0xFF1A2E22),
             inverseOnSurface = Color.White,
             outline = Color(0xFFC5D9CC),
-            outlineVariant = Color(0xFFD8F0E0),
+            outlineVariant = Color(0xFFE8EEEA),
             error = Color(0xFFD93025),
             surfaceContainerLowest = Color.White,
             surfaceContainerLow = Color.White,
             surfaceContainer = Color.White,
-            surfaceContainerHigh = NpvGreenSoft,
-            surfaceContainerHighest = NpvGreenSoft
+            surfaceContainerHigh = Color.White,
+            surfaceContainerHighest = Color.White
         )
     }
     MaterialTheme(
