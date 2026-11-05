@@ -9,12 +9,14 @@ object ConfigBuilder {
 
     /**
      * V2Ray: يخرج الترافيك مباشرة عبر مخرج البروتوكول.
-     * SSH: يخرج عبر SOCKS محلي (SshTunnel) بمستخدم/كلمة سر عشوائيين؛ ولأن SSH لا ينقل UDP
-     * يُمرَّر DNS عبر مخرج dns الداخلي (DoH عبر النفق) ويُحجب باقي UDP ليعود التطبيق إلى TCP.
+     * SSH: يخرج عبر SOCKS محلي (SshTunnel) بمستخدم/كلمة سر عشوائيين؛ DNS يُمرَّر عبر مخرج dns الداخلي
+     * (DoH عبر النفق). باقي UDP: يُحجب ليعود التطبيق إلى TCP، إلا إذا فُعِّل UDPGW فيمر UDP عبر SSH.
      */
     fun build(s: Server, socksPort: Int = 0, socksUser: String = "", socksPass: String = ""): String {
         // SSH و OVPN يخرجان عبر SOCKS محلي بعد حقن البايلود
         val viaLocalSocks = s.protocol == "ssh" || s.protocol == "ovpn"
+        // UDP عبر UDPGW (SSH فقط): نسمح بمرور UDP إلى SOCKS المحلي بدل حجبه.
+        val udpOn = s.protocol == "ssh" && s.udpgw
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "warning"))
         root.put("dns", JSONObject().put("servers", JSONArray(
@@ -29,7 +31,8 @@ object ConfigBuilder {
                 .put("settings", JSONObject().put("name", "xray0").put("MTU", 1500))
                 .put("sniffing", JSONObject()
                     .put("enabled", true)
-                    .put("destOverride", JSONArray(listOf("http", "tls", "quic"))))
+                    // مع UDPGW لا نستبدل وجهة QUIC باسم نطاق: UDPGW يتعامل مع عناوين IP فقط.
+                    .put("destOverride", JSONArray(if (udpOn) listOf("http", "tls") else listOf("http", "tls", "quic"))))
         ))
 
         root.put("outbounds", JSONArray()
@@ -45,7 +48,8 @@ object ConfigBuilder {
         )
         if (viaLocalSocks) {
             rules.put(JSONObject().put("type", "field").put("port", "53").put("outboundTag", "dns-out"))
-            rules.put(JSONObject().put("type", "field").put("network", "udp").put("outboundTag", "block"))
+            // بلا UDPGW نحجب UDP (عدا DNS أعلاه) ليعود التطبيق إلى TCP؛ مع UDPGW يمر عبر النفق.
+            if (!udpOn) rules.put(JSONObject().put("type", "field").put("network", "udp").put("outboundTag", "block"))
         }
         root.put("routing", JSONObject()
             .put("domainStrategy", "AsIs")

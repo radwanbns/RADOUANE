@@ -1,11 +1,14 @@
 package com.xraytunnel.app.core
 
 import android.annotation.SuppressLint
+import android.content.Context
 import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.xraytunnel.app.data.Server
 import java.io.BufferedInputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.io.DataInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -35,11 +38,17 @@ import javax.net.ssl.X509TrustManager
  * نفق SSH: يتصل بالسيرفر (مباشرة / TLS / WebSocket + بايلود / WebSocket + TLS) على أي منفذ،
  * ثم يفتح SOCKS5 محلياً (127.0.0.1، بكلمة سر عشوائية) يحوّل كل اتصال إلى قناة direct-tcpip داخل SSH.
  * نواة Xray تستعمل هذا SOCKS كمخرج، فيبقى مسار TUN كما هو لـ V2Ray.
+ *
+ * إضافات:
+ *  - SlowDNS: يشغّل عميل dnstt الأصلي ويتصل SSH بمنفذه المحلي بدل السيرفر مباشرة (network = "slowdns").
+ *  - UDP: عند server.udpgw يدعم SOCKS المحلي أمر UDP ASSOCIATE ويمرّر الحزم عبر UDPGW داخل SSH،
+ *    وهو يعمل في كل الأنماط (TCP / TLS / Proxy / Payload / SlowDNS).
  */
 class SshTunnel(
     private val server: Server,
     private val onFatal: (String) -> Unit,
-    private val onWarning: (String) -> Unit = {}
+    private val onWarning: (String) -> Unit = {},
+    private val appContext: Context? = null
 ) {
     val socksUser: String = randomHex(6)
     val socksPass: String = randomHex(12)
@@ -47,6 +56,8 @@ class SshTunnel(
     @Volatile private var session: Session? = null
     @Volatile private var closed = false
     @Volatile private var warned = false
+    private var slowDns: SlowDnsClient? = null
+    private var udpGw: UdpGwMux? = null
     private var listener: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r ->
         Thread(r, "ssh-tunnel").apply { isDaemon = true }
@@ -56,13 +67,35 @@ class SshTunnel(
     fun start(): Int {
         try {
             if (server.username.isBlank()) throw TunnelException("SSH username is empty.")
-            if (server.address.isBlank()) throw TunnelException("SSH server address is empty.")
+            if (sshHost().isBlank()) throw TunnelException("SSH server address is empty.")
             if (server.port !in 1..65535) throw TunnelException("Invalid port.")
+            if (server.isSlowDns) {
+                val ctx = appContext ?: throw TunnelException("SlowDNS needs an application context.")
+                ConnLog.add(ConnLog.Level.INFO, "Starting SlowDNS core (dnstt)…")
+                val sd = SlowDnsClient(ctx, server)
+                slowDns = sd
+                try {
+                    sd.start()
+                } catch (e: IllegalStateException) {
+                    throw TunnelException(e.message ?: "SlowDNS failed to start.")
+                }
+                ConnLog.add(ConnLog.Level.INFO, "SlowDNS core is running; opening SSH over DNS (this can take several seconds)…")
+            }
             session = connectSession()
+            if (server.udpgw) {
+                udpGw = UdpGwMux({ h, p -> openDirect(h, p) }, server.udpgwPort.coerceIn(1, 65535), onWarning)
+                ConnLog.add(ConnLog.Level.INFO, "UDP over SSH enabled (UDPGW 127.0.0.1:${server.udpgwPort.coerceIn(1, 65535)})")
+            }
             val ss = ServerSocket(0, 128, InetAddress.getByName("127.0.0.1"))
             listener = ss
             pool.execute { acceptLoop(ss) }
             pool.execute { superviseLoop() }
+            // تحقق مبكر: هل يعمل badvpn-udpgw على السيرفر؟ (تحذير فقط، لا يوقف الاتصال)
+            udpGw?.let { gw ->
+                pool.execute {
+                    if (gw.probe()) ConnLog.add(ConnLog.Level.OK, "UDPGW reachable — UDP is available through the tunnel")
+                }
+            }
             return ss.localPort
         } catch (e: Throwable) {
             val msg = friendlyError(server, e)
@@ -74,26 +107,48 @@ class SshTunnel(
     fun close() {
         closed = true
         try { listener?.close() } catch (_: Exception) {}
+        try { udpGw?.close() } catch (_: Exception) {}
+        udpGw = null
         try { session?.disconnect() } catch (_: Exception) {}
         session = null
+        try { slowDns?.stop() } catch (_: Exception) {}
+        slowDns = null
         pool.shutdownNow()
+    }
+
+    /** عنوان SSH للجلسة (في SlowDNS قد يكون العنوان فارغاً فنستعمل نطاق NS). */
+    private fun sshHost(): String = server.address.ifBlank { server.dnsNs }
+
+    /** يجهّز قناة direct-tcpip إلى (host, port) على السيرفر من الجلسة الحالية (لا يوصلها). */
+    private fun openDirect(host: String, port: Int): ChannelDirectTCPIP {
+        val s = session
+        if (s == null || !s.isConnected) throw IOException("SSH session is not connected")
+        val ch = s.openChannel("direct-tcpip") as ChannelDirectTCPIP
+        ch.setHost(host)
+        ch.setPort(port)
+        ch.setOrgIPAddress("127.0.0.1")
+        ch.setOrgPort(0)
+        return ch
     }
 
     // ---------------------------------------------------------------- SSH session
 
     private fun connectSession(): Session {
         val jsch = JSch()
-        val s = jsch.getSession(server.username, server.address, server.port)
+        // SlowDNS: أعد تشغيل نواة dnstt إن كانت ماتت (منفذها المحلي يتغيّر عندئذ، ويقرؤه EndpointProxy عند كل اتصال).
+        if (server.isSlowDns) slowDns?.ensureRunning()
+        val s = jsch.getSession(server.username, sshHost(), server.port)
         s.setPassword(server.secret)
-        s.setProxy(EndpointProxy(server))
+        s.setProxy(EndpointProxy(server) { slowDns?.localPort ?: 0 })
         s.setConfig("StrictHostKeyChecking", "no")
         s.setConfig("PreferredAuthentications", "password,keyboard-interactive")
         // الأقوى أولاً، ثم الخوارزميات القديمة لأن كثيراً من سيرفرات SSH المجانية قديمة.
         s.setConfig("kex", KEX)
         s.setConfig("server_host_key", HOST_KEYS)
-        s.setServerAliveInterval(15_000)
-        s.setServerAliveCountMax(3)
-        s.connect(CONNECT_TIMEOUT_MS)
+        // نفق DNS بطيء وتأخّره عالٍ: مهل أطول حتى لا نقطع الجلسة ظلماً.
+        s.setServerAliveInterval(if (server.isSlowDns) 30_000 else 15_000)
+        s.setServerAliveCountMax(if (server.isSlowDns) 4 else 3)
+        s.connect(if (server.isSlowDns) SLOWDNS_CONNECT_TIMEOUT_MS else CONNECT_TIMEOUT_MS)
         return s
     }
 
@@ -180,7 +235,14 @@ class SshTunnel(
                 else -> { reply(cout, 8); return }
             }
             val port = cin.readUnsignedShort()
-            if (cmd != 1) { reply(cout, 7); return } // CONNECT فقط (لا UDP عبر SSH)
+            if (cmd == 3) {
+                // UDP ASSOCIATE: مدعوم فقط عند تفعيل UDPGW؛ غير ذلك نرفضه فيعود التطبيق إلى TCP.
+                val gw = udpGw
+                if (gw == null) { reply(cout, 7); return }
+                handleUdpAssociate(c, cin, cout, gw)
+                return
+            }
+            if (cmd != 1) { reply(cout, 7); return }
 
             val s = session
             if (s == null || !s.isConnected) { reply(cout, 1); return }
@@ -219,6 +281,109 @@ class SshTunnel(
         }
     }
 
+    /**
+     * SOCKS5 UDP ASSOCIATE: نفتح DatagramSocket محلياً (127.0.0.1) ونعيد منفذه لـ Xray؛ كل حزمة ترد بترويسة
+     * SOCKS5 UDP تُحوَّل إلى إطار UDPGW داخل SSH، والردود تعود بالعكس. ينتهي الارتباط بإغلاق اتصال TCP.
+     */
+    private fun handleUdpAssociate(c: Socket, cin: DataInputStream, cout: OutputStream, gw: UdpGwMux) {
+        val sock = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
+        val conIds = HashMap<String, Int>()         // "ip:port" الوجهة -> conid
+        // أول مرسل (Xray) فقط يُقبل؛ AtomicReference لأن الردود تُكتب من خيط قارئ UDPGW.
+        val client = java.util.concurrent.atomic.AtomicReference<InetSocketAddress?>(null)
+        val listener = UdpGwMux.Listener { srcIp, srcPort, data ->
+            val ca = client.get()
+            if (ca != null && !sock.isClosed) {
+                val v6 = srcIp.size == 16
+                val out = ByteArray(4 + srcIp.size + 2 + data.size)
+                out[3] = (if (v6) 4 else 1).toByte()               // RSV RSV FRAG=0 ATYP
+                System.arraycopy(srcIp, 0, out, 4, srcIp.size)
+                out[4 + srcIp.size] = (srcPort shr 8).toByte()
+                out[5 + srcIp.size] = srcPort.toByte()
+                System.arraycopy(data, 0, out, 6 + srcIp.size, data.size)
+                try { sock.send(DatagramPacket(out, out.size, ca)) } catch (_: Exception) {}
+            }
+        }
+        try {
+            // رد النجاح مع BND.ADDR=127.0.0.1 و BND.PORT=منفذ UDP المحلي
+            val bp = sock.localPort
+            cout.write(byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, (bp shr 8).toByte(), bp.toByte()))
+            cout.flush()
+            c.soTimeout = 0
+
+            // ينتهي الارتباط عندما يغلق Xray اتصال التحكم TCP.
+            pool.execute {
+                try { while (cin.read() >= 0) { /* تجاهل */ } } catch (_: Exception) {}
+                try { sock.close() } catch (_: Exception) {}
+            }
+
+            val buf = ByteArray(65535)
+            val pkt = DatagramPacket(buf, buf.size)
+            var warnedDomain = false
+            while (!closed && !sock.isClosed) {
+                pkt.length = buf.size
+                sock.receive(pkt)
+                if (!pkt.address.isLoopbackAddress) continue
+                val known = client.get()
+                if (known == null) client.set(InetSocketAddress(pkt.address, pkt.port))
+                else if (pkt.port != known.port) continue
+
+                // ترويسة SOCKS5 UDP: RSV(2) FRAG(1) ATYP(1) ADDR PORT DATA
+                val n = pkt.length
+                if (n < 10 || buf[2].toInt() != 0) continue            // لا نجمّع الشظايا
+                val ip: ByteArray
+                val portIdx: Int
+                when (buf[3].toInt()) {
+                    1 -> { ip = buf.copyOfRange(4, 8); portIdx = 8 }
+                    4 -> { if (n < 22) continue; ip = buf.copyOfRange(4, 20); portIdx = 20 }
+                    3 -> {
+                        // اسم نطاق: UDPGW يقبل عناوين IP فقط، ولا نحلّ الاسم محلياً كي لا يتسرّب DNS خارج النفق.
+                        val dl = buf[4].toInt() and 0xFF
+                        val lit = if (5 + dl + 2 <= n) String(buf, 5, dl, Charsets.ISO_8859_1) else ""
+                        val parsed = literalIp(lit)
+                        if (parsed == null) {
+                            if (!warnedDomain) {
+                                warnedDomain = true
+                                ConnLog.add(ConnLog.Level.DEBUG, "UDP packet with a domain destination dropped (UDPGW needs an IP)")
+                            }
+                            continue
+                        }
+                        ip = parsed; portIdx = 5 + dl
+                    }
+                    else -> continue
+                }
+                if (portIdx + 2 > n) continue
+                val dstPort = ((buf[portIdx].toInt() and 0xFF) shl 8) or (buf[portIdx + 1].toInt() and 0xFF)
+                val dataOff = portIdx + 2
+
+                val key = ip.joinToString(".") { (it.toInt() and 0xFF).toString() } + ":" + dstPort
+                var id = conIds[key] ?: -1
+                if (id < 0) {
+                    id = gw.allocate(listener)
+                    if (id < 0) continue
+                    conIds[key] = id
+                }
+                gw.send(id, ip, dstPort, buf, dataOff, n - dataOff)
+            }
+        } catch (_: Throwable) {
+        } finally {
+            conIds.values.forEach { gw.release(it) }
+            try { sock.close() } catch (_: Exception) {}
+        }
+    }
+
+    /** يحوّل نصاً مثل "1.2.3.4" أو "2001:db8::1" إلى بايتات؛ null إن لم يكن عنوان IP حرفياً (دون أي استعلام DNS). */
+    private fun literalIp(t: String): ByteArray? {
+        if (t.isEmpty()) return null
+        val isV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$").matches(t)
+        val isV6 = t.contains(':') && t.all { it.isLetterOrDigit() || it == ':' || it == '.' }
+        if (!isV4 && !isV6) return null
+        return try {
+            InetAddress.getByName(t).address // لا يحلّ اسماً لأن الإدخال عنوان حرفي
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun reply(out: OutputStream, code: Int) {
         out.write(byteArrayOf(5, code.toByte(), 0, 1, 0, 0, 0, 0, 0, 0))
         out.flush()
@@ -240,6 +405,7 @@ class SshTunnel(
     companion object {
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val CHANNEL_TIMEOUT_MS = 15_000
+        private const val SLOWDNS_CONNECT_TIMEOUT_MS = 90_000
         private const val RECONNECT_ATTEMPTS = 5
 
         private const val KEX =
@@ -269,6 +435,11 @@ class SshTunnel(
                 root is TunnelException -> root.message.orEmpty()
                 all.contains("Auth fail", true) || all.contains("Auth cancel", true) ->
                     "SSH login failed: incorrect username or password."
+                server.isSlowDns && (root is SocketTimeoutException || all.contains("timeout", true) ||
+                    all.contains("timed out", true) || all.contains("End of IO Stream", true) ||
+                    all.contains("Connection reset", true) || all.contains("invalid server's version string", true) ||
+                    all.contains("Socket closed", true) || root is ConnectException) ->
+                    "SlowDNS: SSH did not answer through the DNS tunnel. Check the NS domain, public key, resolver, and that the dnstt server is running."
                 root is UnknownHostException ->
                     if (hide) "Could not reach the server address." else "Could not reach the server address: ${server.address}"
                 root is ConnectException || all.contains("refused", true) ->
@@ -302,7 +473,11 @@ private object TrustAll : X509TrustManager {
  * يبني الوصلة الخام التي يمر عليها SSH:
  * TCP → (TLS + SNI اختياري) → (بايلود HTTP/WebSocket اختياري) → بايتات SSH الخام.
  */
-private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
+private class EndpointProxy(
+    private val s: Server,
+    /** منفذ dnstt المحلي الحالي (SlowDNS فقط). */
+    private val slowDnsPort: () -> Int = { 0 }
+) : com.jcraft.jsch.Proxy {
     private var socket: Socket? = null
     private var inp: InputStream? = null
     private var out: OutputStream? = null
@@ -314,6 +489,34 @@ private class EndpointProxy(private val s: Server) : com.jcraft.jsch.Proxy {
         timeout: Int
     ) {
         val t = if (timeout > 0) timeout else 15_000
+
+        // SlowDNS: SSH يمر عبر منفذ dnstt المحلي (127.0.0.1)؛ لا TLS ولا بايلود ولا بروكسي، فالنقل هو DNS نفسه.
+        if (s.isSlowDns) {
+            val port = slowDnsPort()
+            if (port !in 1..65535) throw TunnelException("SlowDNS core is not running.")
+            var raw: Socket
+            var attempt = 0
+            while (true) {
+                // Socket جديد لكل محاولة: connect الفاشل يغلق الـ Socket.
+                raw = Socket()
+                raw.tcpNoDelay = true
+                try {
+                    raw.connect(InetSocketAddress("127.0.0.1", port), 3_000)
+                    break
+                } catch (e: ConnectException) {
+                    try { raw.close() } catch (_: Exception) {}
+                    // المنفذ لم يبدأ الاستماع بعد (العملية تقلع): جرّب ثانية.
+                    if (++attempt >= 15) throw e
+                    Thread.sleep(300)
+                }
+            }
+            socket = raw
+            raw.soTimeout = t
+            inp = raw.getInputStream()
+            out = raw.getOutputStream()
+            return
+        }
+
         val useProxy = s.proxyHost.isNotBlank()
         val payloadOn = s.network == "ws"
         val tlsOn = s.security == "tls"
