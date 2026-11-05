@@ -82,6 +82,10 @@ private val SSH_MODES = listOf(
     "SSH-TLS-Proxy-Payload" to Triple(true, true, true)
 )
 
+/** نمط SSH فوق نفق DNS (dnstt / SlowDNS): لا يشارك TLS/Proxy/Payload لأن النقل هو DNS نفسه. */
+private const val MODE_SLOWDNS = "SSH-SlowDNS"
+private val DNS_KEY_RE = Regex("^[0-9a-fA-F]{64}$")
+
 /** إضافة/تعديل سيرفر محلي (V2Ray أو SSH بكل أنماطه)، بما فيه عنوان الخادم والمنفذ. */
 @Composable
 fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Unit) {
@@ -104,6 +108,12 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
     var sshTls by remember { mutableStateOf(server.security == "tls") }
     var sshProxy by remember { mutableStateOf(server.proxyHost.isNotBlank()) }
     var sshPayload by remember { mutableStateOf(server.network == "ws") }
+    var sshSlowDns by remember { mutableStateOf(server.protocol == "ssh" && server.network == "slowdns") }
+    var dnsNs by remember { mutableStateOf(server.dnsNs) }
+    var dnsKey by remember { mutableStateOf(server.dnsKey) }
+    var dnsResolver by remember { mutableStateOf(server.dnsResolver) }
+    var udpgw by remember { mutableStateOf(server.udpgw) }
+    var udpgwPort by remember { mutableStateOf(server.udpgwPort.toString()) }
     var invalid by remember { mutableStateOf(false) }
     // بروتوكول V2Ray قابل للتغيير داخل الحوار
     var protocol by remember { mutableStateOf(server.protocol) }
@@ -122,8 +132,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
         "ovpn" -> R.string.field_password   // اختياري لـ OVPN
         else -> R.string.field_password
     }
-    val currentMode = SSH_MODES.firstOrNull { it.second == Triple(sshTls, sshProxy, sshPayload) }?.first
-        ?: SSH_MODES.first().first
+    val slowDnsOn = isSsh && sshSlowDns
+    val currentMode = if (slowDnsOn) MODE_SLOWDNS else
+        SSH_MODES.firstOrNull { it.second == Triple(sshTls, sshProxy, sshPayload) }?.first
+            ?: SSH_MODES.first().first
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -154,10 +166,43 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (isPayloadProto) {
                     if (isSsh) {
-                        ChipRow(stringResource(R.string.field_ssh_mode), SSH_MODES.map { it.first }, currentMode) { picked ->
-                            SSH_MODES.firstOrNull { it.first == picked }?.second?.let { (t, pr, pl) ->
-                                sshTls = t; sshProxy = pr; sshPayload = pl
+                        ChipRow(stringResource(R.string.field_ssh_mode), SSH_MODES.map { it.first } + MODE_SLOWDNS, currentMode) { picked ->
+                            if (picked == MODE_SLOWDNS) {
+                                sshSlowDns = true; sshTls = false; sshProxy = false; sshPayload = false
+                            } else {
+                                SSH_MODES.firstOrNull { it.first == picked }?.second?.let { (t, pr, pl) ->
+                                    sshSlowDns = false; sshTls = t; sshProxy = pr; sshPayload = pl
+                                }
                             }
+                        }
+                        if (slowDnsOn) {
+                            Text(stringResource(R.string.slowdns_hint), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedTextField(dnsNs, { dnsNs = it }, label = { Text(stringResource(R.string.field_dns_ns)) },
+                                singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(dnsKey, { dnsKey = it.trim() }, label = { Text(stringResource(R.string.field_dns_key)) },
+                                supportingText = { Text(stringResource(R.string.dns_key_hint)) },
+                                singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(dnsResolver, { dnsResolver = it.trim() },
+                                label = { Text(stringResource(R.string.field_dns_resolver)) },
+                                supportingText = { Text(stringResource(R.string.dns_resolver_hint)) },
+                                singleLine = true, modifier = Modifier.fillMaxWidth())
+                        }
+                        // UDP عبر UDPGW: متاح في كل أنماط SSH (بما فيها SlowDNS)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Checkbox(checked = udpgw, onCheckedChange = { udpgw = it })
+                            Text(stringResource(R.string.field_udp_over_ssh))
+                        }
+                        if (udpgw) {
+                            OutlinedTextField(udpgwPort, { udpgwPort = it.filter(Char::isDigit).take(5) },
+                                label = { Text(stringResource(R.string.field_udpgw_port)) },
+                                supportingText = { Text(stringResource(R.string.udpgw_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth())
                         }
                     } else {
                         // OpenVPN الحقيقي (ics-openvpn): الصق محتوى ملف .ovpn كاملاً
@@ -253,7 +298,8 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     }
                 }
                 if (invalid) {
-                    Text(stringResource(R.string.ssh_required), color = MaterialTheme.colorScheme.error,
+                    Text(stringResource(if (slowDnsOn) R.string.slowdns_required else R.string.ssh_required),
+                        color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -264,8 +310,12 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     (proxyHost.isBlank() || proxyPort.toIntOrNull() !in 1..65535)
                 val badOvpnProxy = isOvpn && proxyHost.isNotBlank() &&
                     proxyPort.toIntOrNull() !in 1..65535
-                if (address.isBlank() || port.toIntOrNull() !in 1..65535 ||
-                    (isSsh && username.isBlank()) || badSshProxy || badOvpnProxy
+                val badSlowDns = slowDnsOn &&
+                    (dnsNs.isBlank() || !DNS_KEY_RE.matches(dnsKey.trim()))
+                val badUdpgw = isSsh && udpgw && udpgwPort.toIntOrNull() !in 1..65535
+                // في SlowDNS لا يُستعمل العنوان للاتصال (يُستعمل نطاق NS) فيجوز تركه فارغاً.
+                if ((address.isBlank() && !slowDnsOn) || port.toIntOrNull() !in 1..65535 ||
+                    (isSsh && username.isBlank()) || badSshProxy || badOvpnProxy || badSlowDns || badUdpgw
                 ) {
                     invalid = true
                     return@Button
@@ -276,10 +326,10 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                     payload = payload,
                     ovpnConfig = if (isOvpn) ovpnConfig.trim() else "",
                     name = name.trim().ifBlank { server.name },
-                    address = address.trim(),
+                    address = address.trim().ifBlank { if (slowDnsOn) dnsNs.trim() else "" },
                     port = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: server.port,
                     secret = if (isSsh) secret else secret.trim(),
-                    network = if (isPayloadProto) (if (sshPayload) "ws" else "tcp") else network,
+                    network = if (isPayloadProto) (if (slowDnsOn) "slowdns" else if (sshPayload) "ws" else "tcp") else network,
                     security = if (isPayloadProto) (if (sshTls) "tls" else "none") else security,
                     host = host.trim(),
                     sni = sni.trim(),
@@ -296,7 +346,12 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
                         isOvpn && proxyHost.isNotBlank() -> proxyHost.trim()
                         else -> ""
                     },
-                    proxyPort = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080
+                    proxyPort = proxyPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080,
+                    dnsNs = if (slowDnsOn) dnsNs.trim().trimEnd('.') else "",
+                    dnsKey = if (slowDnsOn) dnsKey.trim().lowercase() else "",
+                    dnsResolver = if (slowDnsOn) dnsResolver.trim() else "",
+                    udpgw = isSsh && udpgw,
+                    udpgwPort = udpgwPort.toIntOrNull()?.takeIf { it in 1..65535 } ?: 7300
                 ))
                 onClose()
             }) { Text(stringResource(R.string.save)) }
