@@ -32,6 +32,7 @@ jobs:
             ABI="$1"
             ARCH="$2"
             ARM="$3"
+            GOOS_VALUE="linux"
 
             echo "Building dnstt for $ABI"
 
@@ -42,19 +43,18 @@ jobs:
             mkdir -p "$GOPATH_DIR"
 
             if [ -n "$ARM" ]; then
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS="$GOOS_VALUE" GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             else
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
+              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS="$GOOS_VALUE" GOARCH="$ARCH" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             fi
 
-            cp "$GOPATH_DIR/bin/"* "$OUT/libdnstt.so"
+            cp "$GOPATH_DIR/bin/$GOOS_VALUE"_"$ARCH"/dnstt-client "$OUT/libdnstt.so"
             chmod 755 "$OUT/libdnstt.so"
             test -s "$OUT/libdnstt.so"
           }
 
-          build_dnstt arm64-v8a arm64 ""
           build_dnstt armeabi-v7a arm 7
+          build_dnstt arm64-v8a arm64 ""
           build_dnstt x86_64 amd64 ""
-          build_dnstt x86 386 ""
