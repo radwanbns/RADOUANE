@@ -59,6 +59,7 @@ class XrayVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
     @Volatile private var stopRequested = false
+    @Volatile private var disconnecting = false
     // Serialize lifecycle cleanup; stop requests are signalled immediately, not queued behind a slow connect.
     private val vpnMutex = Mutex()
     private lateinit var connectivityManager: ConnectivityManager
@@ -112,8 +113,9 @@ class XrayVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                // Signal cancellation immediately: startVpnInternal may be waiting on a slow
-                // SSH/TLS/OpenVPN operation while holding vpnMutex.
+                // Keep the UI out of the disconnected/ready state until every protocol
+                // resource has actually been released.
+                disconnecting = true
                 stopRequested = true
                 stopActiveResourcesImmediately()
                 scope.launch { vpnMutex.withLock { stopVpn() } }
@@ -125,12 +127,15 @@ class XrayVpnService : VpnService() {
                     startForeground(1, notification())
                     // Cancel an in-progress handshake immediately, then serialize cleanup
                     // and start the newly selected profile.
+                    disconnecting = true
                     stopRequested = true
                     stopActiveResourcesImmediately()
                     scope.launch {
                         vpnMutex.withLock {
                             stopTunnelOnly()
                             Repo.get(this@XrayVpnService).select(serverId)
+                            state.value = VpnState.Disconnected
+                            disconnecting = false
                             stopRequested = false
                             startVpnInternal()
                         }
@@ -139,6 +144,8 @@ class XrayVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             else -> {
+                // Never start another tunnel while the previous one is still being torn down.
+                if (disconnecting) return START_NOT_STICKY
                 // A fresh START command is the only place that clears a previous stop request.
                 // Do not clear it later inside startVpnInternal(): STOP may arrive while this
                 // coroutine is waiting for vpnMutex.
@@ -152,7 +159,7 @@ class XrayVpnService : VpnService() {
 
     private fun startVpnInternal() {
         // A STOP received while this start was queued/waiting for vpnMutex wins.
-        if (stopRequested || state.value != VpnState.Disconnected) return
+        if (stopRequested || disconnecting || state.value != VpnState.Disconnected) return
         ConnLog.clear()
         if (TimeCredit.remaining(this) <= 0L) {
             setError("Time expired. Watch a rewarded ad to add a full hour.")
@@ -498,7 +505,6 @@ class XrayVpnService : VpnService() {
         ovpnTunnel = null
         try { pfd?.close() } catch (_: Exception) {}
         pfd = null
-        state.value = VpnState.Disconnected
     }
 
     private fun stopActiveResourcesImmediately() {
@@ -511,23 +517,33 @@ class XrayVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        disconnecting = true
         stopRequested = true
         stopTunnelOnly()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        // Publish Disconnected only after all tunnel resources and foreground state are cleaned.
+        disconnecting = false
+        state.value = VpnState.Disconnected
         stopSelf()
     }
 
     override fun onRevoke() {
+        disconnecting = true
         stopRequested = true
         stopActiveResourcesImmediately()
         stopTunnelOnly()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        disconnecting = false
+        state.value = VpnState.Disconnected
         stopSelf()
     }
     override fun onDestroy() {
+        disconnecting = true
         stopRequested = true
         try { connectivityManager.unregisterNetworkCallback(physicalNetworkCallback) } catch (_: Exception) {}
         stopTunnelOnly()
+        disconnecting = false
+        state.value = VpnState.Disconnected
         super.onDestroy()
     }
 
