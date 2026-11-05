@@ -130,14 +130,20 @@ jobs:
 
       - name: Build
         run: gradle assembleRelease --no-daemon
-      - name: Verify SlowDNS core is packaged in APK
+      - name: Verify each ABI APK contains its SlowDNS core
         run: |
           set -euo pipefail
-          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n1)"
-          test -n "$APK"
-          echo "Checking APK: $APK"
+          APK_DIR="app/build/outputs/apk/release"
           for ABI in arm64-v8a armeabi-v7a x86_64 x86; do
+            APK="$(find "$APK_DIR" -maxdepth 1 -type f -name "*${ABI}*release*.apk" -print -quit)"
+            if [ -z "$APK" ]; then
+              echo "::error::APK for $ABI was not generated"
+              find "$APK_DIR" -maxdepth 1 -type f -print || true
+              exit 1
+            fi
+            echo "Checking $ABI APK: $APK"
             unzip -l "$APK" | grep -F "lib/$ABI/libdnstt.so"
+            ls -lh "$APK"
           done
       - uses: actions/upload-artifact@v4
         with:
