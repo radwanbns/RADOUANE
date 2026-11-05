@@ -58,12 +58,14 @@ jobs:
                 go install -trimpath -ldflags="-s -w" "$MODULE@$DNSTT_VERSION"
             fi
 
-            BINARY="$GOPATH_DIR/bin/dnstt-client"
-            if [ ! -s "$BINARY" ]; then
+            # Go places cross-compiled executables under bin/<goos>_<goarch>/.
+            BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
+            if [ -z "$BINARY" ] || [ ! -s "$BINARY" ]; then
               echo "::error::dnstt-client was not produced for $ABI"
-              find "$GOPATH_DIR" -maxdepth 4 -type f -print || true
+              find "$GOPATH_DIR" -maxdepth 5 -type f -print || true
               return 1
             fi
+            echo "Using binary: $BINARY"
             cp "$BINARY" "$OUT/libdnstt.so"
             chmod 755 "$OUT/libdnstt.so"
             file "$OUT/libdnstt.so"
