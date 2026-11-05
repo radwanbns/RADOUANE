@@ -16,6 +16,47 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.9" }
 
+      # Build the real dnstt-client executable for every Android CPU ABI.
+      # It is packaged under jniLibs so Android extracts it to nativeLibraryDir.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+
+      - name: Build SlowDNS (dnstt) for all Android ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="v1.20260501.0"
+          mkdir -p app/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86,x86_64}
+
+          mkdir -p "$RUNNER_TEMP/dnstt-bin"
+          build_dnstt() {
+            ABI="$1"
+            GOARCH="$2"
+            GOARM_VALUE="$3"
+            OUTPUT="app/src/main/jniLibs/$ABI/libdnstt.so"
+            echo "Building dnstt for $ABI ($GOARCH)"
+            if [ -n "$GOARM_VALUE" ]; then
+              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM_VALUE" CGO_ENABLED=0 \\
+                go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
+            else
+              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 \\
+                go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
+            fi
+            cp "$RUNNER_TEMP/dnstt-bin/dnstt-client" "$OUTPUT"
+            chmod 755 "$OUTPUT"
+            test -s "$OUTPUT"
+          }
+
+          build_dnstt arm64-v8a arm64 ""
+          build_dnstt armeabi-v7a arm 7
+          build_dnstt x86 386 ""
+          build_dnstt x86_64 amd64 ""
+
+          echo "Packaged SlowDNS binaries:"
+          find app/src/main/jniLibs -name libdnstt.so -type f -exec ls -lh {} \\;
+
       - name: Download Xray core (libv2ray.aar)
         run: |
           mkdir -p app/libs
