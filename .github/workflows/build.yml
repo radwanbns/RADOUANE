@@ -1,154 +1,80 @@
-name: Build Android APK
-
+name: Build APK
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
+    branches: [ main ]
+  workflow_dispatch:
+env:
+  # ثبّت وسماً/commit مُجرَّباً بدل master لضمان بناء قابل للتكرار
+  ICS_OPENVPN_REF: master
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-      - name: Download Xray Core
-        shell: bash
+      - name: Download Xray core (libv2ray.aar)
         run: |
-          set -euo pipefail
-
           mkdir -p app/libs
+          curl -fL -o app/libs/libv2ray.aar \
+            https://github.com/2dust/AndroidLibXrayLite/releases/latest/download/libv2ray.aar
 
-          if ! compgen -G "app/libs/*.aar" > /dev/null; then
-            echo "Downloading libv2ray.aar"
-
-            URL=$(curl -fsSL \
-              https://api.github.com/repos/2dust/AndroidLibXrayLite/releases/latest \
-              | python3 -c '
-          import json,sys
-          data=json.load(sys.stdin)
-          assets=data.get("assets",[])
-          matches=[a["browser_download_url"] for a in assets if a["name"]=="libv2ray.aar"]
-          if not matches:
-              raise SystemExit("libv2ray.aar not found in latest release")
-          print(matches[0])
-          ')
-
-            curl -fL "$URL" -o app/libs/libv2ray.aar
-          fi
-
-          test -s app/libs/libv2ray.aar
-
-      - name: Build SlowDNS
-        shell: bash
+      # ---- OpenVPN حقيقي: بناء ics-openvpn كـ AAR (GPLv2، يحتاج NDK + submodules) ----
+      - name: Accept Android SDK licenses
         run: |
-          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.14904198" "cmake;3.22.1"
 
-          VERSION="v1.20260501.0"
-          MODULE="www.bamsoftware.com/git/dnstt.git/dnstt-client"
-
-          build_dnstt() {
-            ABI="$1"
-            ARCH="$2"
-            ARM="$3"
-
-            echo "Building dnstt for $ABI"
-
-            OUT="app/src/main/jniLibs/$ABI"
-            mkdir -p "$OUT"
-
-            GOPATH_DIR="$RUNNER_TEMP/gopath-$ABI"
-            mkdir -p "$GOPATH_DIR"
-
-            if [ -n "$ARM" ]; then
-              env -u GOBIN \
-                GOPATH="$GOPATH_DIR" \
-                GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
-                go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
-            else
-              env -u GOBIN \
-                GOPATH="$GOPATH_DIR" \
-                GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
-                go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
-            fi
-
-            BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
-
-            if [ -z "$BINARY" ]; then
-              echo "ERROR: dnstt-client not found for $ABI"
-              find "$GOPATH_DIR/bin" -maxdepth 4 -print
-              exit 1
-            fi
-
-            cp "$BINARY" "$OUT/libdnstt.so"
-            chmod 755 "$OUT/libdnstt.so"
-            test -s "$OUT/libdnstt.so"
-
-            echo "Built $ABI successfully"
-          }
-
-          build_dnstt armeabi-v7a arm 7
-          build_dnstt arm64-v8a arm64 ""
-          build_dnstt x86_64 amd64 ""
-
-      - name: Verify Project
+      - name: Clone ics-openvpn
         run: |
-          test -f settings.gradle.kts
-          test -f build.gradle.kts
-          test -f app/build.gradle.kts
-          test -d app/src/main
+          git clone --recurse-submodules --depth 1 --branch "$ICS_OPENVPN_REF" \
+            https://github.com/schwabe/ics-openvpn.git /tmp/ics-openvpn
 
-      - name: Build APK
+      # :main في ics تطبيق (application) لا ينتج AAR؛ نحوّله إلى library أثناء البناء فقط
+      - name: Convert ics-openvpn main module to a library
+        working-directory: /tmp/ics-openvpn
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/ics_to_library.py"
+
+      - name: Build ics-openvpn (AAR)
+        working-directory: /tmp/ics-openvpn
         run: |
-          gradle assembleRelease --no-daemon --stacktrace
+          ./gradlew --no-daemon :main:tasks --all > /tmp/ics-tasks.txt
+          CANDIDATES=$(grep -oE '^assemble[A-Za-z0-9]*Ovpn23Release' /tmp/ics-tasks.txt | sort -u)
+          echo "Candidate tasks:"; echo "$CANDIDATES"
+          # نفضّل skeleton (بدون واجهة ics وأيقونتها)، وإلا أول نسخة متاحة
+          TASK=$(echo "$CANDIDATES" | grep -i skeleton | head -n1)
+          [ -n "$TASK" ] || TASK=$(echo "$CANDIDATES" | head -n1)
+          test -n "$TASK" || { echo "No ovpn23 release assemble task found"; exit 1; }
+          echo "Using task: $TASK"
+          ./gradlew --no-daemon ":main:$TASK"
+          echo "AARs:"; find main/build/outputs/aar -name '*.aar'
 
-      - name: Find APK
-        id: apk
-        shell: bash
+      - name: Package ics-openvpn.aar
+        working-directory: /tmp/ics-openvpn
         run: |
-          set -euo pipefail
+          AAR=$(find main/build/outputs/aar -name '*.aar' | grep -i ovpn23 | grep -i release | head -n1)
+          test -n "$AAR" || { echo "ics-openvpn AAR not found"; exit 1; }
+          echo "Source AAR: $AAR"
+          rm -rf /tmp/aar && mkdir /tmp/aar && cd /tmp/aar && unzip -q "/tmp/ics-openvpn/$AAR"
+          # AGP 8.5.2 يرفض AAR يشترط compileSdk/AGP أحدث؛ نخفّض الشروط (الكلاسات تعمل على 26+ بحسب ics)
+          META=META-INF/com/android/build/gradle/aar-metadata.properties
+          echo "--- metadata before"; cat "$META" || true
+          sed -i -E 's/^minCompileSdk=.*/minCompileSdk=34/; s/^minAgpVersion=.*/minAgpVersion=8.1.0/; /^minCompileSdkExtension=/d' "$META"
+          echo "--- metadata after"; cat "$META"
+          zip -qr "$GITHUB_WORKSPACE/app/libs/ics-openvpn.aar" .
 
-          mkdir -p output
+      - name: Verify ics-openvpn AAR
+        run: |
+          ls -la app/libs
+          unzip -p app/libs/ics-openvpn.aar classes.jar > /tmp/ics-classes.jar
+          unzip -l /tmp/ics-classes.jar | grep -E "core/(VpnStatus|ConfigParser|ProfileManager|OpenVPNService|VPNLaunchHelper)\.class"
 
-          find app/build/outputs/apk -type f -name "*.apk" -print
-
-          APK="$(find app/build/outputs/apk -type f -name "*.apk" -print -quit)"
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: No APK generated"
-            exit 1
-          fi
-
-          cp "$APK" output/RADOUANE-SlowDNS.apk
-
-          echo "APK_PATH=output/RADOUANE-SlowDNS.apk" >> "$GITHUB_ENV"
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Build
+        run: gradle assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
         with:
-          name: RADOUANE-SlowDNS-APK
-          path: output/RADOUANE-SlowDNS.apk
-          if-no-files-found: error
-          retention-days: 30
+          name: XrayTunnel-apk
+          path: app/build/outputs/apk/release/*.apk
