@@ -98,6 +98,8 @@ object LinkParser {
     /**
      * ssh://user:pass@host:port?type=ws|tcp&proxy=host:port&security=tls|none&sni=..&host=..&path=..&payload=..&allowInsecure=1#Name
      * أي منفذ مقبول (1..65535). type=tcp: SSH مباشر، type=ws: WebSocket + بايلود.
+     * SlowDNS: type=slowdns&ns=ns.example.com&key=<64 hex>&resolver=8.8.8.8:53
+     * UDP عبر UDPGW (يعمل مع كل الأنماط): udpgw=1&udpgwPort=7300  (أو udpgw=7300)
      */
     private fun ssh(link: String): Server? {
         val u = Uri.parse(link)
@@ -108,11 +110,19 @@ object LinkParser {
         val pass = Uri.decode(ui.substringAfter(":", ""))
         if (user.isBlank()) return null
         fun q(k: String) = u.getQueryParameter(k) ?: ""
+        val slowDns = q("type").lowercase() in listOf("slowdns", "dns", "dnstt") || q("ns").isNotBlank()
         val net = when {
+            slowDns -> "slowdns"
             q("type").lowercase() in listOf("ws", "websocket", "payload") -> "ws"
             q("payload").isNotBlank() -> "ws"
             else -> "tcp"
         }
+        // udpgw=1 | udpgw=7300 | udpgw=true ، والمنفذ اختياري عبر udpgwPort
+        val udpRaw = q("udpgw").ifBlank { q("udp") }.lowercase()
+        val udpOn = udpRaw.isNotBlank() && udpRaw !in listOf("0", "false", "no", "off")
+        val udpPort = (q("udpgwPort").toIntOrNull() ?: udpRaw.toIntOrNull()?.takeIf { it > 1 })
+            ?.takeIf { it in 1..65535 } ?: 7300
+        val dnsNs = q("ns").trim().ifBlank { if (slowDns) host else "" }
         val proxy = q("proxy").trim()
         val proxyHost = if (proxy.contains(":")) proxy.substringBeforeLast(":") else proxy
         val proxyPort = if (proxy.contains(":")) proxy.substringAfterLast(":").toIntOrNull()?.takeIf { it in 1..65535 } ?: 8080 else 8080
@@ -132,7 +142,12 @@ object LinkParser {
             payload = q("payload"),
             proxyHost = proxyHost,
             proxyPort = proxyPort,
-            insecure = q("allowInsecure") == "1" || q("insecure") == "1"
+            insecure = q("allowInsecure") == "1" || q("insecure") == "1",
+            dnsNs = if (slowDns) dnsNs else "",
+            dnsKey = if (slowDns) q("key").ifBlank { q("pubkey") }.trim() else "",
+            dnsResolver = if (slowDns) q("resolver").ifBlank { q("dns") }.trim() else "",
+            udpgw = udpOn,
+            udpgwPort = udpPort
         )
     }
 
@@ -183,11 +198,19 @@ object LinkParser {
         val host = u.host ?: return null
         val port = if (u.port in 1..65535) u.port else 1194
         fun q(k: String) = u.getQueryParameter(k) ?: ""
+        val slowDns = q("type").lowercase() in listOf("slowdns", "dns", "dnstt") || q("ns").isNotBlank()
         val net = when {
+            slowDns -> "slowdns"
             q("type").lowercase() in listOf("ws", "websocket", "payload") -> "ws"
             q("payload").isNotBlank() -> "ws"
             else -> "tcp"
         }
+        // udpgw=1 | udpgw=7300 | udpgw=true ، والمنفذ اختياري عبر udpgwPort
+        val udpRaw = q("udpgw").ifBlank { q("udp") }.lowercase()
+        val udpOn = udpRaw.isNotBlank() && udpRaw !in listOf("0", "false", "no", "off")
+        val udpPort = (q("udpgwPort").toIntOrNull() ?: udpRaw.toIntOrNull()?.takeIf { it > 1 })
+            ?.takeIf { it in 1..65535 } ?: 7300
+        val dnsNs = q("ns").trim().ifBlank { if (slowDns) host else "" }
         val tls = q("security").lowercase() == "tls" || q("tls") == "1"
         val ui = u.encodedUserInfo ?: ""
         val user = if (ui.contains(":")) Uri.decode(ui.substringBefore(":")) else ""

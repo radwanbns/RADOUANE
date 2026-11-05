@@ -36,7 +36,12 @@ data class Server(
     val proxyHost: String = "",    // SSH: HTTP proxy اختياري (SSH-Proxy)
     val proxyPort: Int = 8080,
     val locked: Boolean = false,   // سيرفر مستورد من ملف مقفل: مخفي، لا تعديل ولا مشاركة
-    val ovpnConfig: String = ""    // OpenVPN الحقيقي: نص ملف .ovpn كاملاً (يُشغَّل عبر ics-openvpn)
+    val ovpnConfig: String = "",   // OpenVPN الحقيقي: نص ملف .ovpn كاملاً (يُشغَّل عبر ics-openvpn)
+    val dnsNs: String = "",        // SSH-SlowDNS: نطاق NS (مثل ns.example.com)
+    val dnsKey: String = "",       // SSH-SlowDNS: المفتاح العام لسيرفر dnstt (64 حرف hex)
+    val dnsResolver: String = "",  // SSH-SlowDNS: DNS resolver (ip[:port] أو https://… أو tls://…)؛ فارغ = 8.8.8.8:53
+    val udpgw: Boolean = false,    // SSH: تمرير UDP عبر UDPGW (badvpn-udpgw على السيرفر)
+    val udpgwPort: Int = 7300      // SSH: منفذ UDPGW على السيرفر (127.0.0.1:port)
 ) {
     /** سيرفرات الحافظة فقط (subId فارغ) قابلة للتعديل والحذف؛ سيرفرات التحديث مقفلة. */
     val isEditable: Boolean get() = subId.isBlank() && !locked
@@ -46,6 +51,9 @@ data class Server(
 
     /** يمكن حذفه: سيرفرات الحافظة والملفات (المقفلة وغير المقفلة). */
     val isDeletable: Boolean get() = subId.isBlank()
+
+    /** SSH فوق نفق DNS (dnstt / SlowDNS). */
+    val isSlowDns: Boolean get() = protocol == "ssh" && network == "slowdns"
 
     /** true = OpenVPN حقيقي عبر ics-openvpn (ملف .ovpn كامل)؛ false = نفق Payload القديم. */
     val isRealOvpn: Boolean get() = protocol == "ovpn" && ovpnConfig.isNotBlank()
@@ -63,7 +71,7 @@ data class Server(
         network, headerType, host, path, security, sni, fingerprint, alpn,
         insecure.toString(), publicKey, shortId, spiderX, obfsPassword,
         localAddress, reserved, mtu.toString(), username, payload, proxyHost, proxyPort.toString(),
-        ovpnConfig
+        ovpnConfig, dnsNs, dnsKey, dnsResolver, udpgw.toString(), udpgwPort.toString()
     ).joinToString("\u001f")
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -79,6 +87,8 @@ data class Server(
         put("proxyHost", proxyHost); put("proxyPort", proxyPort)
         put("locked", locked)
         put("ovpnConfig", ovpnConfig)
+        put("dnsNs", dnsNs); put("dnsKey", dnsKey); put("dnsResolver", dnsResolver)
+        put("udpgw", udpgw); put("udpgwPort", udpgwPort)
     }
 
     companion object {
@@ -98,7 +108,11 @@ data class Server(
             mtu = o.optInt("mtu", 1280),
             username = o.optString("username"), payload = o.optString("payload"),
             proxyHost = o.optString("proxyHost"), proxyPort = o.optInt("proxyPort", 8080), locked = o.optBoolean("locked", false),
-            ovpnConfig = o.optString("ovpnConfig")
+            ovpnConfig = o.optString("ovpnConfig"),
+            dnsNs = o.optString("dnsNs"), dnsKey = o.optString("dnsKey"),
+            dnsResolver = o.optString("dnsResolver"),
+            udpgw = o.optBoolean("udpgw", false),
+            udpgwPort = o.optInt("udpgwPort", 7300).takeIf { it in 1..65535 } ?: 7300
         )
     }
 }

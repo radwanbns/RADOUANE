@@ -47,7 +47,12 @@ object ServerExporter {
                     "type" to s.network, "security" to s.security, "sni" to s.sni,
                     "host" to s.host, "path" to s.path, "payload" to s.payload,
                     "proxy" to if (s.proxyHost.isNotBlank()) "${s.proxyHost}:${s.proxyPort}" else "",
-                    "allowInsecure" to if (s.insecure) "1" else ""
+                    "allowInsecure" to if (s.insecure) "1" else "",
+                    "ns" to if (s.isSlowDns) s.dnsNs else "",
+                    "key" to if (s.isSlowDns) s.dnsKey else "",
+                    "resolver" to if (s.isSlowDns) s.dnsResolver else "",
+                    "udpgw" to if (s.udpgw) "1" else "",
+                    "udpgwPort" to if (s.udpgw && s.udpgwPort != 7300) s.udpgwPort.toString() else ""
                 )
                 "ssh://${Uri.encode(s.username)}:${Uri.encode(s.secret)}@$host:${s.port}" +
                     "${if (q.isNotEmpty()) "?$q" else ""}#$name"

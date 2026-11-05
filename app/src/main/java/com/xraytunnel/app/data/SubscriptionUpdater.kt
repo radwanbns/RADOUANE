@@ -94,6 +94,7 @@ object SubscriptionUpdater {
                 id = UUID.randomUUID().toString(),
                 subId = "",
                 locked = false,
+                address = s.address.ifBlank { if (s.isSlowDns) s.dnsNs else "" },
                 name = s.name.ifBlank { s.protocol.uppercase() },
                 port = if (s.port in 1..65535) s.port else if (s.protocol == "ssh") 22 else 443
             )
