@@ -28,7 +28,6 @@ object TimeCredit {
     private const val INITIAL_CREDIT = 6L * 60L * 1000L
     private const val MAX_CREDIT = 24L * 60L * 60L * 1000L
     private const val BACKUP_NAME = "xraytunnel_time_credit.dat"
-    private const val BACKUP_RELATIVE_PATH = "Download/RADOUANE/"
 
     @Synchronized
     fun remaining(context: Context): Long {
@@ -159,38 +158,23 @@ object TimeCredit {
         if (Build.VERSION.SDK_INT < 29) return
         try {
             val resolver = context.contentResolver
+            // Update existing
             val existing = findMediaUri(context)
-            val uri = if (existing != null) {
-                // Move older backups from the Downloads root into Download/RADOUANE.
-                val move = ContentValues().apply {
-                    put(MediaStore.Downloads.RELATIVE_PATH, BACKUP_RELATIVE_PATH)
-                }
-                resolver.update(existing, move, null, null)
-                existing
-            } else {
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_NAME)
-                    put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
-                    put(MediaStore.Downloads.RELATIVE_PATH, BACKUP_RELATIVE_PATH)
-                    put(MediaStore.Downloads.IS_PENDING, 1)
-                }
-                resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: throw IllegalStateException("MediaStore could not create the time backup")
+            if (existing != null) {
+                resolver.openOutputStream(existing, "wt")?.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                return
             }
-
-            resolver.openOutputStream(uri, "wt")?.use {
-                it.write(payload.toByteArray(Charsets.UTF_8))
-                it.flush()
-            } ?: throw IllegalStateException("Could not write the time backup")
-
-            val publish = ContentValues().apply {
-                put(MediaStore.Downloads.IS_PENDING, 0)
-                put(MediaStore.Downloads.RELATIVE_PATH, BACKUP_RELATIVE_PATH)
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_NAME)
+                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
-            resolver.update(uri, publish, null, null)
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+            resolver.openOutputStream(uri)?.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
         } catch (_: Exception) {
-            // SharedPreferences remains the primary store; the public copy is retried
-            // the next time the balance is read or changed.
         }
     }
 
