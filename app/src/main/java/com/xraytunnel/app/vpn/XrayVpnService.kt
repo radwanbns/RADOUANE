@@ -165,7 +165,12 @@ class XrayVpnService : VpnService() {
             // SSH أو OVPN: نتصل أولاً (قبل إنشاء واجهة VPN) لتظهر أخطاء البايلود/TLS فوراً.
             val config = when (server.protocol) {
                 "ssh" -> {
-                    ConnLog.add(ConnLog.Level.INFO, "Starting SSH tunnel…")
+                    ConnLog.add(
+                        ConnLog.Level.INFO,
+                        "Starting SSH tunnel…" +
+                            (if (server.isSlowDns) " [SlowDNS]" else "") +
+                            (if (server.udpgw) " [UDP]" else "")
+                    )
                     val tunnel = SshTunnel(
                         server,
                         onFatal = { msg ->
@@ -178,7 +183,8 @@ class XrayVpnService : VpnService() {
                                 }
                             }
                         },
-                        onWarning = { msg -> setError(msg) }
+                        onWarning = { msg -> setError(msg) },
+                        appContext = applicationContext
                     )
                     val port = tunnel.start()
                     sshTunnel = tunnel
