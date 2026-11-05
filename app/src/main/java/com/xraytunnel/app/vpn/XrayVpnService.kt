@@ -275,33 +275,20 @@ class XrayVpnService : VpnService() {
         ConnLog.add(level, l)
     }
 
-    /** يخصم الوقت ويحدّث السرعات في إشعار Xray Tunnel. */
+    /** يخصم الوقت أثناء Connected ويبقي إشعار ics مخفياً قدر الإمكان. */
     private fun startCreditTicker() {
         creditTicker?.cancel()
         creditTicker = scope.launch {
-            var prevRx = android.net.TrafficStats.getTotalRxBytes().coerceAtLeast(0L)
-            var prevTx = android.net.TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
             while (state.value == VpnState.Connected) {
                 kotlinx.coroutines.delay(1000L)
                 if (state.value != VpnState.Connected) break
-                val rx = android.net.TrafficStats.getTotalRxBytes().coerceAtLeast(prevRx)
-                val tx = android.net.TrafficStats.getTotalTxBytes().coerceAtLeast(prevTx)
-                notifDownText = formatNotifSpeed(rx - prevRx)
-                notifUpText = formatNotifSpeed(tx - prevTx)
-                prevRx = rx
-                prevTx = tx
-                if (notifStatusLine.isBlank() || notifStatusLine == "Connected to server") {
-                    notifStatusLine = "Connected"
-                }
-                updateNotification()
+                if (icsActive) IcsOpenVpn.suppressIcons(this@XrayVpnService)
                 if (TimeCredit.consumeSecond(this@XrayVpnService) <= 0L) {
                     setError("Available time ran out; VPN disconnected.")
                     vpnMutex.withLock { stopVpn() }
                     break
                 }
             }
-            notifDownText = "—"
-            notifUpText = "—"
         }
     }
 
@@ -312,6 +299,18 @@ class XrayVpnService : VpnService() {
             b >= 1_000L -> String.format("%.1f KB/s", b / 1_000.0)
             else -> "$b B/s"
         }
+    }
+
+    /** Mark OpenVPN as fully connected in app state + notification. */
+    private fun markOvpnConnected() {
+        if (state.value == VpnState.Connected) {
+            notifStatusLine = "Connected"
+            return
+        }
+        state.value = VpnState.Connected
+        notifStatusLine = "Connected"
+        ConnLog.add(ConnLog.Level.OK, "Connected successfully — tunnel is up")
+        startCreditTicker()
     }
 
     /**
@@ -329,30 +328,40 @@ class XrayVpnService : VpnService() {
         var lastShown = ""
         IcsOpenVpn.observe(onDetail = { d ->
             icsDetail = d
-            notifStatusLine = friendlyState(d)
+            val line = friendlyState(d)
             if (d != lastShown) {
                 lastShown = d
-                ConnLog.add(stateLevel(d), notifStatusLine)
+                ConnLog.add(stateLevel(d), line)
             }
-            updateNotification()
+            // Some ics builds report CONNECTED in the state string before/without LEVEL_CONNECTED.
+            if (d.equals("CONNECTED", ignoreCase = true)) {
+                scope.launch {
+                    vpnMutex.withLock {
+                        if (!icsActive) return@withLock
+                        markOvpnConnected()
+                    }
+                    updateNotification()
+                }
+            } else {
+                notifStatusLine = line
+                updateNotification()
+            }
         }) { st ->
             scope.launch {
                 vpnMutex.withLock {
                     if (!icsActive) return@withLock
                     when (st) {
-                        IcsOpenVpn.Status.Connected -> if (state.value != VpnState.Connected) {
-                            state.value = VpnState.Connected
-                            updateNotification()
-                            ConnLog.add(ConnLog.Level.OK, "Connected successfully — tunnel is up")
-                            startCreditTicker()
+                        IcsOpenVpn.Status.Connected -> markOvpnConnected()
+                        IcsOpenVpn.Status.Connecting -> {
+                            if (state.value == VpnState.Disconnected) {
+                                state.value = VpnState.Connecting
+                            }
+                            // Do not overwrite Connected with Connecting (race).
                         }
-                        IcsOpenVpn.Status.Connecting -> if (state.value == VpnState.Disconnected) {
-                            state.value = VpnState.Connecting
-                            updateNotification()
-                        }
-                        // Temporary network drop: stay "connected" in UI; OpenVPN reconnects on its own
-                        IcsOpenVpn.Status.Waiting ->
+                        IcsOpenVpn.Status.Waiting -> {
+                            // Keep UI connected during brief drops; OpenVPN reconnects itself.
                             ConnLog.add(ConnLog.Level.WARN, "Temporary network drop — OpenVPN is waiting to reconnect")
+                        }
                         is IcsOpenVpn.Status.Failed -> {
                             lastError.value = st.message
                             ConnLog.add(ConnLog.Level.ERROR, st.message)
@@ -361,6 +370,7 @@ class XrayVpnService : VpnService() {
                         IcsOpenVpn.Status.Stopped -> if (state.value != VpnState.Disconnected) stopVpn()
                     }
                 }
+                updateNotification()
             }
         }
         var forwardPort = 0
@@ -451,33 +461,22 @@ class XrayVpnService : VpnService() {
         val stop = PendingIntent.getService(this, 1,
             Intent(this, XrayVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val statusText = when (state.value) {
-            VpnState.Connected -> {
-                val base = notifStatusLine.ifBlank { getString(R.string.notification_connected) }
-                if (icsActive || notifDownText != "—") {
-                    base + "  DL " + notifDownText + "  UL " + notifUpText
-                } else base
-            }
-            VpnState.Connecting -> {
-                notifStatusLine.ifBlank { getString(R.string.notification_connecting) }
-            }
+            VpnState.Connected -> getString(R.string.notification_connected)
+            VpnState.Connecting -> getString(R.string.notification_connecting)
             else -> getString(R.string.notification_disconnected)
-        }
-        val big = if (state.value == VpnState.Connected) {
-            getString(R.string.app_name) + "\n" + statusText + "\n" +
-                "DL " + notifDownText + "  UL " + notifUpText
-        } else {
-            statusText
         }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(statusText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(big))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(statusText))
             .setContentIntent(open)
             .addAction(0, getString(R.string.disconnect), stop)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .setGroup("xraytunnel_vpn")
+            .setGroupSummary(false)
             .build()
     }
 
