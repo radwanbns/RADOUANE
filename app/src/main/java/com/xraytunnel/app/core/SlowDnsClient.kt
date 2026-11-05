@@ -160,7 +160,7 @@ internal class SlowDnsClient(
 
     companion object {
         const val BIN_NAME = "libdnstt.so"
-        const val DEFAULT_RESOLVER = "8.8.8.8:53"
+        const val DEFAULT_RESOLVER = "105.73.34.105:53"
         private const val STARTUP_GRACE_MS = 800L
         private val KEY_RE = Regex("^[0-9a-fA-F]{64}$")
         private val NS_RE = Regex("^(?=.{1,253}$)([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?\\.)+[A-Za-z]{2,63}$")
