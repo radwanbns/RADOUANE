@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">Xray Tunnel</string>
     <string name="update_servers">Update servers</string>
+    <string name="check_update">Check update</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="connected">Connected</string>
