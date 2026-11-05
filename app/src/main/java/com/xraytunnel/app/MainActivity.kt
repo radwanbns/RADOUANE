@@ -702,7 +702,7 @@ fun MainScreen(vm: MainViewModel) {
                         DropdownMenu(
                             expanded = menu,
                             onDismissRequest = { menu = false },
-                            containerColor = Color.White
+                            containerColor = MaterialTheme.colorScheme.surface
                         ) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.check_update)) },
@@ -745,7 +745,7 @@ fun MainScreen(vm: MainViewModel) {
             )
         },
         bottomBar = {
-            NavigationBar(containerColor = Color.White) {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
@@ -880,7 +880,7 @@ fun MainScreen(vm: MainViewModel) {
                             DropdownMenu(
                                 expanded = addMenu,
                                 onDismissRequest = { addMenu = false },
-                                containerColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.surface
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.protocol_v2ray)) },
@@ -1245,7 +1245,7 @@ private fun NpvHomePage(
             modifier = Modifier
                 .size(160.dp)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(MaterialTheme.colorScheme.surface)
                 .border(3.dp, statusColor.copy(alpha = 0.45f), CircleShape)
                 .clickable(enabled = state != VpnState.Connecting, onClick = onToggle),
             contentAlignment = Alignment.Center
@@ -1260,7 +1260,7 @@ private fun NpvHomePage(
         Spacer(Modifier.height(20.dp))
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -1282,7 +1282,7 @@ private fun NpvHomePage(
         Spacer(Modifier.height(12.dp))
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onWatchReward)
         ) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1299,7 +1299,7 @@ private fun NpvHomePage(
         Spacer(Modifier.height(12.dp))
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenConfigs)
         ) {
             Column(Modifier.padding(16.dp)) {
@@ -1371,7 +1371,7 @@ private fun MorePage(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text("MORE", fontWeight = FontWeight.Bold, color = NpvGreen, fontSize = 18.sp)
-        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.dns_settings), fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(primary, { primary = it }, label = { Text("Primary DNS") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -1386,7 +1386,7 @@ private fun MorePage(
                 }
             }
         }
-        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTelegram)) {
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTelegram)) {
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Send, null, tint = NpvGreen)
                 Spacer(Modifier.width(12.dp))
@@ -1397,7 +1397,7 @@ private fun MorePage(
                 Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
             }
         }
-        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenYoutube)) {
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenYoutube)) {
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.PlayCircle, null, tint = NpvGreen)
                 Spacer(Modifier.width(12.dp))
@@ -1408,7 +1408,7 @@ private fun MorePage(
                 Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF9BB0A3))
             }
         }
-        Surface(shape = RoundedCornerShape(14.dp), color = Color.White, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenVpnSettings)) {
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenVpnSettings)) {
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.VpnKey, null, tint = NpvGreen)
                 Spacer(Modifier.width(12.dp))
@@ -1890,10 +1890,11 @@ private fun LogsPage(
     }
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
 
-    val bg = Color(0xFFF3F7F4)
-    val card = Color.White
-    val dim = Color(0xFF6B7F72)
-    val titleColor = Color(0xFF1A2E22)
+    val cs = MaterialTheme.colorScheme
+    val bg = cs.background
+    val card = cs.surface
+    val dim = cs.onSurfaceVariant
+    val titleColor = cs.onSurface
     val dot = when (state) {
         VpnState.Connected -> ConnectedGreen
         VpnState.Connecting -> ConnectingAmber
@@ -2007,8 +2008,8 @@ private fun ConnLogPanel(
     }
     val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US) }
 
-    val bg = Color.White
-    val dim = Color(0xFF6B7F72)
+    val bg = MaterialTheme.colorScheme.surface
+    val dim = MaterialTheme.colorScheme.onSurfaceVariant
     val dot = when (state) {
         VpnState.Connected -> ConnectedGreen
         VpnState.Connecting -> ConnectingAmber
