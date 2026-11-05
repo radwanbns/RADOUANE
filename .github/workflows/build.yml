@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,11 +17,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache: true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Download Xray Core
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p app/libs
+
+          if ! compgen -G "app/libs/*.aar" > /dev/null; then
+            echo "Downloading libv2ray.aar"
+
+            URL=$(curl -fsSL \
+              https://api.github.com/repos/2dust/AndroidLibXrayLite/releases/latest \
+              | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          assets=data.get("assets",[])
+          matches=[a["browser_download_url"] for a in assets if a["name"]=="libv2ray.aar"]
+          if not matches:
+              raise SystemExit("libv2ray.aar not found in latest release")
+          print(matches[0])
+          ')
+
+            curl -fL "$URL" -o app/libs/libv2ray.aar
+          fi
+
+          test -s app/libs/libv2ray.aar
 
       - name: Build SlowDNS
         shell: bash
@@ -42,17 +83,21 @@ jobs:
             mkdir -p "$GOPATH_DIR"
 
             if [ -n "$ARM" ]; then
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
+              env -u GOBIN \
+                GOPATH="$GOPATH_DIR" \
+                GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             else
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
+              env -u GOBIN \
+                GOPATH="$GOPATH_DIR" \
+                GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
                 go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
             fi
 
             BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
 
             if [ -z "$BINARY" ]; then
-              echo "ERROR: dnstt-client binary not found for $ABI"
+              echo "ERROR: dnstt-client not found for $ABI"
               find "$GOPATH_DIR/bin" -maxdepth 4 -print
               exit 1
             fi
@@ -61,44 +106,49 @@ jobs:
             chmod 755 "$OUT/libdnstt.so"
             test -s "$OUT/libdnstt.so"
 
-            echo "Successfully built $ABI"
+            echo "Built $ABI successfully"
           }
 
           build_dnstt armeabi-v7a arm 7
           build_dnstt arm64-v8a arm64 ""
           build_dnstt x86_64 amd64 ""
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Verify Project
+        run: |
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f app/build.gradle.kts
+          test -d app/src/main
 
       - name: Build APK
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Find APK
+        id: apk
         shell: bash
         run: |
           set -euo pipefail
 
-          GRADLEW="$(find . -type f -name gradlew -print -quit)"
+          mkdir -p output
 
-          if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew not found"
-            find . -maxdepth 4 -type f | head -100
+          find app/build/outputs/apk -type f -name "*.apk" -print
+
+          APK="$(find app/build/outputs/apk -type f -name "*.apk" -print -quit)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK generated"
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$GRADLEW")"
+          cp "$APK" output/RADOUANE-SlowDNS.apk
 
-          echo "Gradle project: $PROJECT_DIR"
-
-          cd "$PROJECT_DIR"
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          echo "APK_PATH=output/RADOUANE-SlowDNS.apk" >> "$GITHUB_ENV"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: RADOUANE-SlowDNS-APK
-          path: |
-            **/build/outputs/apk/release/*.apk
+          path: output/RADOUANE-SlowDNS.apk
           if-no-files-found: error
+          retention-days: 30
