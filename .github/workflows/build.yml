@@ -1,88 +1,28 @@
-name: Build Android APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: Build SlowDNS
+      - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
 
-          VERSION="v1.20260501.0"
-          MODULE="www.bamsoftware.com/git/dnstt.git/dnstt-client"
+          GRADLEW="$(find . -type f -name gradlew -print -quit)"
 
-          build_dnstt() {
-            ABI="$1"
-            ARCH="$2"
-            ARM="$3"
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: gradlew not found"
+            find . -maxdepth 3 -type f | head -100
+            exit 1
+          fi
 
-            echo "Building dnstt for $ABI"
+          PROJECT_DIR="$(dirname "$GRADLEW")"
 
-            OUT="app/src/main/jniLibs/$ABI"
-            mkdir -p "$OUT"
+          echo "Gradle project: $PROJECT_DIR"
 
-            GOPATH_DIR="$RUNNER_TEMP/gopath-$ABI"
-            mkdir -p "$GOPATH_DIR"
-
-            if [ -n "$ARM" ]; then
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
-                go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
-            else
-              env -u GOBIN GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
-                go install -trimpath -ldflags="-s -w" "$MODULE@$VERSION"
-            fi
-
-            BINARY="$(find "$GOPATH_DIR/bin" -type f -name dnstt-client -print -quit)"
-
-            if [ -z "$BINARY" ]; then
-              echo "ERROR: dnstt-client binary not found for $ABI"
-              find "$GOPATH_DIR/bin" -maxdepth 4 -print
-              exit 1
-            fi
-
-            cp "$BINARY" "$OUT/libdnstt.so"
-            chmod 755 "$OUT/libdnstt.so"
-            test -s "$OUT/libdnstt.so"
-
-            echo "Successfully built $ABI"
-          }
-
-          build_dnstt armeabi-v7a arm 7
-          build_dnstt arm64-v8a arm64 ""
-          build_dnstt x86_64 amd64 ""
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Build APK
-        run: |
+          cd "$PROJECT_DIR"
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK
+            - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: RADOUANE-SlowDNS-APK
           path: |
-            app/build/outputs/apk/release/*.apk
+            **/build/outputs/apk/release/*.apk
           if-no-files-found: error
