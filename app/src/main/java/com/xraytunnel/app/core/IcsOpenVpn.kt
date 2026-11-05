@@ -49,18 +49,57 @@ object IcsOpenVpn {
      * يجب استدعاؤه قبل بدء ics (يُخفَّض مستوى قناة موجودة فقط ما لم يغيّرها المستخدم يدوياً).
      */
     private fun quietNotifications(ctx: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         try {
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
-            for ((id, name) in listOf("openvpn_bg" to "OpenVPN", "openvpn_newstat" to "OpenVPN status")) {
-                val ch = NotificationChannel(id, name, NotificationManager.IMPORTANCE_MIN).apply {
-                    setShowBadge(false)
-                    setSound(null, null)
-                    enableVibration(false)
-                    enableLights(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Hide OpenVPN-ics status icons as much as the system allows (FGS still requires a silent notif).
+                val ids = listOf(
+                    "openvpn_bg", "openvpn_newstat", "openvpn_status",
+                    "vpn", "background", "openvpn"
+                )
+                for (id in ids) {
+                    val ch = NotificationChannel(id, "Background", NotificationManager.IMPORTANCE_MIN).apply {
+                        setShowBadge(false)
+                        setSound(null, null)
+                        enableVibration(false)
+                        enableLights(false)
+                        lockscreenVisibility = android.app.Notification.VISIBILITY_SECRET
+                    }
+                    nm.createNotificationChannel(ch)
                 }
-                nm.createNotificationChannel(ch)
             }
+            // Cancel leftover OpenVPN UI notifications so only XrayTunnel icon remains visible.
+            suppressOpenVpnIcons(nm)
+        } catch (_: Throwable) {}
+    }
+
+    private fun suppressOpenVpnIcons(nm: NotificationManager) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                nm.activeNotifications.forEach { sbn ->
+                    val title = sbn.notification.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+                    val text = sbn.notification.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString().orEmpty()
+                    val looksOpenVpn =
+                        title.contains("OpenVPN", ignoreCase = true) ||
+                            text.contains("OpenVPN", ignoreCase = true) ||
+                            title.contains("ics", ignoreCase = true) ||
+                            sbn.tag?.contains("openvpn", ignoreCase = true) == true
+                    // Do not cancel our own XrayTunnel VPN notification (id 1).
+                    if (looksOpenVpn && sbn.id != 1) {
+                        try { nm.cancel(sbn.tag, sbn.id) } catch (_: Exception) {}
+                        try { nm.cancel(sbn.id) } catch (_: Exception) {}
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** Call while connected to keep OpenVPN status icons from lingering. */
+    fun suppressIcons(ctx: Context) {
+        try {
+            val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+            suppressOpenVpnIcons(nm)
+            quietNotifications(ctx)
         } catch (_: Throwable) {}
     }
 
@@ -81,7 +120,7 @@ object IcsOpenVpn {
             )
         }
 
-        profile.mName = server.name.ifBlank { "OpenVPN" }
+        profile.mName = server.name.ifBlank { "VPN" }
 
         // بيانات الدخول المحفوظة في السيرفر (إن وُجد auth-user-pass في الملف)
         if (server.username.isNotBlank()) profile.mUsername = server.username
