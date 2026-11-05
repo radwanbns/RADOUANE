@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.xraytunnel.app"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 34
         versionCode = 5
         versionName = "1.4.0"
