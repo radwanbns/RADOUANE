@@ -18,6 +18,16 @@ android {
         // English only: drop all other languages (including those from libraries)
         resourceConfigurations += listOf("en")
     }
+    // Build one smaller APK per CPU architecture instead of bundling all four ABIs.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
