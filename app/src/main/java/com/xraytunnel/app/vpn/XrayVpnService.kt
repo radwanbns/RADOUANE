@@ -515,6 +515,9 @@ class XrayVpnService : VpnService() {
 
     private fun stopActiveResourcesImmediately() {
         creditTicker?.cancel()
+        // Disable OpenVPN callbacks before stopping the engine so a late CONNECTED
+        // callback cannot overwrite the user's Disconnect request.
+        icsActive = false
         try { IcsOpenVpn.stop(this) } catch (_: Exception) {}
         try { XrayCore.stop() } catch (_: Exception) {}
         try { sshTunnel?.close() } catch (_: Exception) {}
