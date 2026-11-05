@@ -5,3 +5,5 @@ local.properties
 .idea/
 app/build/
 app/libs/*.aar
+# يُبنى في CI (dnstt-client)
+app/src/main/jniLibs/

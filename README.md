@@ -2,7 +2,7 @@
 
 عميل VPN لأندرويد (Kotlin + Jetpack Compose) مبني على نواة **Xray** عبر `libv2ray.aar`.
 
-**البروتوكولات:** SSH (TCP / TLS / WebSocket + Payload) · VMess · VLESS (TLS / REALITY / XTLS-Vision) · Trojan · Shadowsocks · SOCKS · Hysteria2 · WireGuard
+**البروتوكولات:** SSH (TCP / TLS / WebSocket + Payload / **SlowDNS** + **UDP عبر UDPGW** في كل الأنماط) · VMess · VLESS (TLS / REALITY / XTLS-Vision) · Trojan · Shadowsocks · SOCKS · Hysteria2 · WireGuard
 **النقل:** TCP · WS · gRPC · HTTP/2 · mKCP · HTTPUpgrade · XHTTP
 
 ## الروابط (خارج التطبيق فقط)
@@ -47,6 +47,32 @@
 - الأنماط: `tcp` مباشر، أو `ws` (بايلود HTTP/WebSocket)، وكلٌّ منهما اختياريًا مع `tls` وSNI. أي منفذ مقبول.
 - متغيرات البايلود: `[crlf] [cr] [lf] [host] [port] [host_port] [path] [sni] [protocol] [ua] [ws_key] [split]`.
 - زر **SSH** بجانب أزرار الملفات يضيف سيرفر SSH يدويًا.
+
+## SSH SlowDNS و UDP (UDPGW)
+
+### SSH-SlowDNS (SSH فوق DNS)
+- نمط جديد ضمن **SSH mode** باسم `SSH-SlowDNS`. الحقول: **NS domain** + **Public key** (64 hex) + **DNS resolver** اختياري (الافتراضي `8.8.8.8:53`؛ `https://…` = DoH، `tls://host` = DoT).
+- يشغّل التطبيق عميل **dnstt** الأصلي (Go) كملف تنفيذي `libdnstt.so` ويستمع على `127.0.0.1:<منفذ عشوائي>`؛ ثم يتصل SSH بهذا المنفذ. اسم المستخدم وكلمة السر هما حساب SSH على السيرفر.
+- حقلا Address وPort لا يُستعملان في الاتصال (يُستعمل NS والـ resolver). إن تُرك Address فارغاً يُملأ بنطاق NS.
+- التضمين: `build.yml` يبني `dnstt-client` لكل ABI (arm64-v8a / armeabi-v7a / x86_64) إلى `app/src/main/jniLibs/<abi>/libdnstt.so`. عند البناء المحلي نفّذ الأمر نفسه (`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o app/src/main/jniLibs/arm64-v8a/libdnstt.so ./dnstt-client` من مستودع dnstt) وإلا ستظهر رسالة «SlowDNS core is not included».
+- مع DoH/DoT استعمل عنوان **IP** في الرابط (مثل `https://1.1.1.1/dns-query`)، لأن ملف Go الثابت لا يقرأ إعدادات DNS الخاصة بأندرويد.
+- السرعة محدودة بطبيعة DNS، والاتصال الأول قد يستغرق عدة ثوانٍ (مهلة SSH هنا 90 ثانية).
+
+**إعداد السيرفر (مرة واحدة):**
+```
+# DNS: سجل NS للنطاق الفرعي يشير إلى سيرفرك
+#   t.example.com.   NS   tns.example.com.      tns.example.com.  A  <IP السيرفر>
+dnstt-server -gen-key -privkey-file server.key -pubkey-file server.pub   # محتوى server.pub = Public key
+iptables -t nat -I PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 5300
+dnstt-server -udp :5300 -privkey-file server.key t.example.com 127.0.0.1:22
+```
+
+### UDP عبر UDPGW (في كل أنماط SSH)
+- خانة **UDP over SSH (UDPGW)** تعمل مع: Direct / Proxy / Payload / TLS / كل التركيبات / SlowDNS.
+- عند تفعيلها يدعم SOCKS المحلي أمر `UDP ASSOCIATE` ويضمّن حزم UDP داخل قناة `direct-tcpip` واحدة إلى `127.0.0.1:<منفذ UDPGW>` على السيرفر (بروتوكول badvpn-udpgw). عند تعطيلها يبقى السلوك القديم: DNS عبر DoH ويُحجب باقي UDP.
+- يلزم على السيرفر: `badvpn-udpgw --listen-addr 127.0.0.1:7300 --max-clients 1000 --max-connections-for-client 10` وأن يسمح sshd بالتحويل (`AllowTcpForwarding yes` وأن لا يمنع `PermitOpen` المنفذ 7300). إن تعذّر الوصول يظهر تحذير في السجل ويستمر TCP بالعمل.
+- لا تُحلّ أسماء النطاقات محلياً لوجهات UDP (حتى لا يتسرّب DNS خارج النفق)؛ لذلك لا يُستبدل عنوان QUIC باسم نطاق عند تفعيل UDP.
+- في الروابط: `ssh://user:pass@host:22?type=slowdns&ns=t.example.com&key=<64hex>&resolver=8.8.8.8:53&udpgw=1&udpgwPort=7300#Name` (و`udpgw=1` يصلح مع أي `type`).
 
 ## التحديث من GitHub (V2Ray + SSH)
 نفس ملف `servers.txt` يقبل روابط V2Ray وروابط `ssh://` معًا (وكذلك JSON أو Base64). أمثلة جاهزة داخل `servers.txt`. سيرفرات التحديث تبقى مقفلة ومخفية التفاصيل (بما فيها رسائل الأخطاء).

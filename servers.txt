@@ -23,3 +23,11 @@
 # [{"protocol":"ssh","name":"SSH-WS-TLS","address":"ssh.example.com","port":443,"username":"user","secret":"pass",
 #   "network":"ws","security":"tls","sni":"cdn.example.com","host":"cdn.example.com","path":"/ws",
 #   "payload":"GET [path] [protocol][crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf]"}]
+#
+# ---- SSH + UDP (UDPGW) في أي نمط: أضف udpgw=1 (والمنفذ اختياري udpgwPort=7300) ----
+# ssh://user:pass@ssh.example.com:443?type=tcp&security=tls&sni=cdn.example.com&udpgw=1#SSH-TLS-UDP
+# ssh://user:pass@ssh.example.com:80?type=ws&host=cdn.example.com&path=%2Fws&udpgw=1&udpgwPort=7300#SSH-WS-UDP
+#
+# ---- SSH SlowDNS (dnstt): ns = نطاق NS ، key = المفتاح العام 64 hex ، resolver اختياري ----
+# ssh://user:pass@t.example.com:22?type=slowdns&ns=t.example.com&key=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&resolver=8.8.8.8:53#SlowDNS
+# ssh://user:pass@t.example.com:22?type=slowdns&ns=t.example.com&key=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&udpgw=1#SlowDNS-UDP
