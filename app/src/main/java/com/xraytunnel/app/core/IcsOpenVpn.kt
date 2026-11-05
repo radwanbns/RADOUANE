@@ -77,19 +77,35 @@ object IcsOpenVpn {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 nm.activeNotifications.forEach { sbn ->
-                    val title = sbn.notification.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
-                    val text = sbn.notification.extras?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString().orEmpty()
+                    // Keep only XrayTunnel foreground notification (id = 1, title app name).
+                    if (sbn.id == 1) return@forEach
+                    val title = sbn.notification.extras
+                        ?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+                    val text = sbn.notification.extras
+                        ?.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString().orEmpty()
+                    val big = sbn.notification.extras
+                        ?.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+                    val channel = if (Build.VERSION.SDK_INT >= 26) sbn.notification.channelId.orEmpty() else ""
                     val looksOpenVpn =
-                        title.contains("OpenVPN", ignoreCase = true) ||
-                            text.contains("OpenVPN", ignoreCase = true) ||
-                            title.contains("ics", ignoreCase = true) ||
-                            sbn.tag?.contains("openvpn", ignoreCase = true) == true
-                    // Do not cancel our own XrayTunnel VPN notification (id 1).
-                    if (looksOpenVpn && sbn.id != 1) {
+                        title.contains("OpenVPN", true) ||
+                            text.contains("OpenVPN", true) ||
+                            big.contains("OpenVPN", true) ||
+                            title.contains("OVPN", true) ||
+                            channel.contains("openvpn", true) ||
+                            sbn.tag?.contains("openvpn", true) == true ||
+                            // ics-openvpn status style: "↓ … kbit/s"
+                            text.contains("kbit/s", true) ||
+                            text.contains("Mbit/s", true)
+                    if (looksOpenVpn) {
                         try { nm.cancel(sbn.tag, sbn.id) } catch (_: Exception) {}
                         try { nm.cancel(sbn.id) } catch (_: Exception) {}
                     }
                 }
+            }
+            // Common ics-openvpn notification ids used across versions
+            for (id in intArrayOf(0, 1, 2, 3, 10, 100, 101, 102, 1001, 1002)) {
+                if (id == 1) continue // XrayTunnel
+                try { nm.cancel(id) } catch (_: Exception) {}
             }
         } catch (_: Throwable) {}
     }
