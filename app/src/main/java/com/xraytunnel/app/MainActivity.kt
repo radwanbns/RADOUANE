@@ -1250,7 +1250,7 @@ private fun NpvHomePage(
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(3.dp, statusColor.copy(alpha = 0.45f), CircleShape)
-                .clickable(enabled = state != VpnState.Connecting, onClick = onToggle),
+                .clickable(enabled = true, onClick = onToggle),
             contentAlignment = Alignment.Center
         ) {
             Icon(
