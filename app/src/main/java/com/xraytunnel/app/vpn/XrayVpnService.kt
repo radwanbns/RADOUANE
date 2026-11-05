@@ -454,7 +454,7 @@ class XrayVpnService : VpnService() {
             VpnState.Connected -> {
                 val base = notifStatusLine.ifBlank { getString(R.string.notification_connected) }
                 if (icsActive || notifDownText != "—") {
-                    "$base  ↓ $notifDownText  ↑ $notifUpText"
+                    base + "  DL " + notifDownText + "  UL " + notifUpText
                 } else base
             }
             VpnState.Connecting -> {
@@ -463,9 +463,8 @@ class XrayVpnService : VpnService() {
             else -> getString(R.string.notification_disconnected)
         }
         val big = if (state.value == VpnState.Connected) {
-            "${getString(R.string.app_name)}
-$statusText
-↓ $notifDownText   ↑ $notifUpText"
+            getString(R.string.app_name) + "\n" + statusText + "\n" +
+                "DL " + notifDownText + "  UL " + notifUpText
         } else {
             statusText
         }
