@@ -490,17 +490,28 @@ fun MainScreen(vm: MainViewModel) {
         )
     }
 
-    fun chooseServer(id: String) {
-        if (id == selectedId) return
-        // Selecting a server must never start or switch a VPN connection.
-        vm.select(id)
-    }
-
     val vpnPerm = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         if (it.resultCode == Activity.RESULT_OK) {
             startVpn()
+        }
+    }
+
+    fun chooseServer(id: String) {
+        // Save the selected profile, then connect/switch immediately.
+        vm.select(id)
+        val permissionIntent = VpnService.prepare(ctx)
+        if (permissionIntent != null) {
+            hostActivity?.suppressAppOpen = true
+            vpnPerm.launch(permissionIntent)
+        } else {
+            ContextCompat.startForegroundService(
+                ctx,
+                Intent(ctx, XrayVpnService::class.java)
+                    .setAction(XrayVpnService.ACTION_SWITCH_SERVER)
+                    .putExtra(XrayVpnService.EXTRA_SERVER_ID, id)
+            )
         }
     }
 
