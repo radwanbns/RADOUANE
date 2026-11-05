@@ -9,7 +9,6 @@ import android.provider.MediaStore
 import android.util.Base64
 import java.io.File
 import java.nio.ByteBuffer
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -115,8 +114,8 @@ object TimeCredit {
     private fun encrypt(context: Context, value: Long): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val nonce = ByteArray(12)
-        SecureRandom().nextBytes(nonce)
         val id = key(context)
+        for (i in nonce.indices) nonce[i] = id[i]
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(id, "AES"), GCMParameterSpec(128, nonce))
         val plain = ByteBuffer.allocate(8).putLong(value).array()
         return nonce + cipher.doFinal(plain)
