@@ -395,17 +395,24 @@ fun MainScreen(vm: MainViewModel) {
         }
     }
 
-    // شريط "Xray Tunnel Connected" بنفس شكل ولون "Update Success" عند انتقال الحالة إلى متصل
+    // شريط "Xray Tunnel Connected" / Update Success
     var prevVpnState by remember { mutableStateOf(state) }
     LaunchedEffect(state) {
         val justConnected = state == VpnState.Connected && prevVpnState == VpnState.Connecting
         prevVpnState = state
         if (justConnected) {
-            val text = ctx.getString(R.string.tunnel_connected)
-            updateBanner = text
-            delay(3000)
-            if (updateBanner == text) updateBanner = null
+            updateBanner = ctx.getString(R.string.tunnel_connected)
         }
+        if (state == VpnState.Disconnected) {
+            updateBanner = null
+        }
+    }
+
+    // Always auto-dismiss banner so it never stays stuck
+    LaunchedEffect(updateBanner) {
+        val shown = updateBanner ?: return@LaunchedEffect
+        delay(2500)
+        if (updateBanner == shown) updateBanner = null
     }
 
     LaunchedEffect(message) {
@@ -413,12 +420,6 @@ fun MainScreen(vm: MainViewModel) {
 
         if (current == ctx.getString(R.string.update_success)) {
             updateBanner = current
-            delay(3000)
-
-            if (updateBanner == current) {
-                updateBanner = null
-            }
-
             vm.consumeMessage()
         } else {
             snack.showSnackbar(current)
@@ -1203,6 +1204,30 @@ private fun NpvHomePage(
     onWatchReward: () -> Unit,
     onOpenConfigs: () -> Unit
 ) {
+    var downText by remember { mutableStateOf("—") }
+    var upText by remember { mutableStateOf("—") }
+    LaunchedEffect(state) {
+        if (state != VpnState.Connected) {
+            downText = "—"
+            upText = "—"
+            return@LaunchedEffect
+        }
+        var prevRx = android.net.TrafficStats.getTotalRxBytes()
+        var prevTx = android.net.TrafficStats.getTotalTxBytes()
+        if (prevRx < 0L) prevRx = 0L
+        if (prevTx < 0L) prevTx = 0L
+        while (true) {
+            delay(1000L)
+            var rx = android.net.TrafficStats.getTotalRxBytes()
+            var tx = android.net.TrafficStats.getTotalTxBytes()
+            if (rx < 0L) rx = prevRx
+            if (tx < 0L) tx = prevTx
+            downText = formatSpeed(rx - prevRx)
+            upText = formatSpeed(tx - prevTx)
+            prevRx = rx
+            prevTx = tx
+        }
+    }
     val statusColor by animateColorAsState(
         when (state) {
             VpnState.Connected -> ConnectedGreen
@@ -1327,11 +1352,11 @@ private fun NpvHomePage(
                 Row(Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("DOWNLINK", color = Color(0xFF7A9184), fontSize = 11.sp)
-                        Text("—", fontWeight = FontWeight.Bold)
+                        Text(downText, fontWeight = FontWeight.Bold)
                     }
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("UPLINK", color = Color(0xFF7A9184), fontSize = 11.sp)
-                        Text("—", fontWeight = FontWeight.Bold)
+                        Text(upText, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1790,6 +1815,15 @@ private fun Server.networkInfo(): String = buildString {
 
     if (security != "none") {
         append(" · ").append(security.uppercase())
+    }
+}
+
+private fun formatSpeed(bytesPerSec: Long): String {
+    val b = if (bytesPerSec < 0L) 0L else bytesPerSec
+    return when {
+        b >= 1_000_000L -> String.format("%.1f MB/s", b / 1_000_000.0)
+        b >= 1_000L -> String.format("%.1f KB/s", b / 1_000.0)
+        else -> "$b B/s"
     }
 }
 
