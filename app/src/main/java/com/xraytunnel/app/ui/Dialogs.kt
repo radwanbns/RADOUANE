@@ -29,7 +29,7 @@ fun TelegramDialog(onClose: () -> Unit) {
     val ctx = LocalContext.current
     AlertDialog(
         onDismissRequest = onClose,
-        containerColor = Color.White,
+        containerColor = MaterialTheme.colorScheme.surface,
         icon = {
             Icon(
                 painter = painterResource(R.drawable.ic_telegram_brand),
@@ -42,7 +42,7 @@ fun TelegramDialog(onClose: () -> Unit) {
             Text(
                 stringResource(R.string.telegram_title),
                 textAlign = TextAlign.Center,
-                color = Color(0xFF1A2E22)
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         text = {
@@ -53,7 +53,7 @@ fun TelegramDialog(onClose: () -> Unit) {
                 Text(
                     stringResource(R.string.telegram_message),
                     textAlign = TextAlign.Center,
-                    color = Color(0xFF1A2E22)
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         },
