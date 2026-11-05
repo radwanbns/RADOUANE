@@ -72,7 +72,7 @@ internal class SlowDnsClient(
         // إن كانت المعاملات خاطئة يخرج dnstt فوراً؛ ننتظر قليلاً لنلتقط ذلك بدل انتظار مهلة SSH.
         val deadline = System.currentTimeMillis() + STARTUP_GRACE_MS
         while (System.currentTimeMillis() < deadline) {
-            if (!p.isAlive) {
+            if (!isProcessAlive(p)) {
                 throw IllegalStateException("The SlowDNS core exited immediately (exit code ${p.exitValue()}). Check NS domain, public key and resolver.")
             }
             Thread.sleep(100)
@@ -84,7 +84,7 @@ internal class SlowDnsClient(
     @Synchronized
     fun ensureRunning() {
         val p = proc
-        if (p == null || !p.isAlive) {
+        if (p == null || !isProcessAlive(p)) {
             ConnLog.add(ConnLog.Level.WARN, "SlowDNS core stopped — restarting it")
             start()
         }
@@ -99,13 +99,26 @@ internal class SlowDnsClient(
         Thread {
             try {
                 Thread.sleep(500)
-                if (p.isAlive) p.destroyForcibly()
+                if (isProcessAlive(p)) p.destroy()
             } catch (_: Exception) {
             }
         }.apply { isDaemon = true }.start()
     }
 
     // ------------------------------------------------------------------ helpers
+
+    // Process.isAlive()/destroyForcibly() are API 26+. Use exitValue() so Android 5-7
+    // can run the same SlowDNS executable without calling newer framework methods.
+    private fun isProcessAlive(process: Process): Boolean {
+        return try {
+            process.exitValue()
+            false
+        } catch (_: IllegalThreadStateException) {
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun validate() {
         val ns = server.dnsNs.trim().trimEnd('.')
