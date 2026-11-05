@@ -139,6 +139,10 @@ class XrayVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             else -> {
+                // A fresh START command is the only place that clears a previous stop request.
+                // Do not clear it later inside startVpnInternal(): STOP may arrive while this
+                // coroutine is waiting for vpnMutex.
+                stopRequested = false
                 startForeground(1, notification())
                 scope.launch { vpnMutex.withLock { startVpnInternal() } }
             }
@@ -147,8 +151,8 @@ class XrayVpnService : VpnService() {
     }
 
     private fun startVpnInternal() {
-        if (state.value != VpnState.Disconnected) return
-        stopRequested = false
+        // A STOP received while this start was queued/waiting for vpnMutex wins.
+        if (stopRequested || state.value != VpnState.Disconnected) return
         ConnLog.clear()
         if (TimeCredit.remaining(this) <= 0L) {
             setError("Time expired. Watch a rewarded ad to add a full hour.")
@@ -226,8 +230,10 @@ class XrayVpnService : VpnService() {
                         },
                         onWarning = { msg -> setError(msg) }
                     )
-                    val port = tunnel.start()
+                    // Publish before the blocking payload/TLS preflight so Disconnect
+                    // can close it while this protocol is still connecting.
                     ovpnTunnel = tunnel
+                    val port = tunnel.start()
                     if (stopRequested) {
                         tunnel.close()
                         ovpnTunnel = null
@@ -437,10 +443,23 @@ class XrayVpnService : VpnService() {
                 },
                 onWarning = { msg -> setError(msg) }
             )
-            forwardPort = fwd.startRawForward() // يرمي خطأ مفهوماً إن فشل البايلود/البروكسي/TLS
+            // Publish before the blocking payload/TLS preflight so Disconnect
+            // can cancel this protocol too.
             ovpnTunnel = fwd
+            forwardPort = fwd.startRawForward() // يرمي خطأ مفهوماً إن فشل البايلود/البروكسي/TLS
+            if (stopRequested) {
+                fwd.close()
+                ovpnTunnel = null
+                return
+            }
         }
         ConnLog.add(ConnLog.Level.INFO, "Parsing .ovpn file and starting ics-openvpn")
+        if (stopRequested) {
+            icsActive = false
+            try { ovpnTunnel?.close() } catch (_: Exception) {}
+            ovpnTunnel = null
+            return
+        }
         IcsOpenVpn.markLogCursor()
         IcsOpenVpn.start(this, server, forwardPort)
 
