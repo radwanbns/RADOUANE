@@ -29,6 +29,7 @@ fun TelegramDialog(onClose: () -> Unit) {
     val ctx = LocalContext.current
     AlertDialog(
         onDismissRequest = onClose,
+        containerColor = Color.White,
         icon = {
             Icon(
                 painter = painterResource(R.drawable.ic_telegram_brand),
@@ -37,13 +38,27 @@ fun TelegramDialog(onClose: () -> Unit) {
                 tint = Color.Unspecified
             )
         },
-        title = { Text(stringResource(R.string.telegram_title), textAlign = TextAlign.Center) },
+        title = {
+            Text(
+                stringResource(R.string.telegram_title),
+                textAlign = TextAlign.Center,
+                color = Color(0xFF1A2E22)
+            )
+        },
         text = {
-            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.telegram_message), textAlign = TextAlign.Center)
+            Column(
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    stringResource(R.string.telegram_message),
+                    textAlign = TextAlign.Center,
+                    color = Color(0xFF1A2E22)
+                )
             }
         },
         confirmButton = {
+            // Keep default Material button colors (no custom green)
             Button(onClick = {
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Defaults.telegramUrl()))) }
                 onClose()
