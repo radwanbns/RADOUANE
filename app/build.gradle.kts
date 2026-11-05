@@ -14,7 +14,6 @@ android {
         targetSdk = 34
         versionCode = 5
         versionName = "1.4.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
         // English only: drop all other languages (including those from libraries)
         resourceConfigurations += listOf("en")
     }
