@@ -123,10 +123,16 @@ class XrayVpnService : VpnService() {
                 val serverId = intent.getStringExtra(EXTRA_SERVER_ID)
                 if (serverId != null) {
                     startForeground(1, notification())
+                    // Cancel an in-progress handshake immediately, then serialize cleanup
+                    // and start the newly selected profile.
+                    stopRequested = true
+                    stopActiveResourcesImmediately()
                     scope.launch {
                         vpnMutex.withLock {
-                            stopVpn()
+                            stopTunnelOnly()
                             Repo.get(this@XrayVpnService).select(serverId)
+                            stopRequested = false
+                            startVpnInternal()
                         }
                     }
                 }
@@ -160,6 +166,21 @@ class XrayVpnService : VpnService() {
         notifUpText = "—"
         updateNotification()
         lastError.value = null
+        // Any protocol that has not reached Connected within 45 seconds is
+        // considered stalled. Signal cancellation without waiting for vpnMutex.
+        scope.launch {
+            kotlinx.coroutines.delay(45_000L)
+            if (state.value == VpnState.Connecting && !stopRequested) {
+                stopRequested = true
+                setError("Connection timed out after 45 seconds. The server did not respond.")
+                stopActiveResourcesImmediately()
+                scope.launch {
+                    vpnMutex.withLock {
+                        if (state.value == VpnState.Connecting) stopVpn()
+                    }
+                }
+            }
+        }
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
         ConnLog.add(ConnLog.Level.INFO, "Starting connection: ${server.name} (${server.protocol.uppercase()})")
