@@ -54,6 +54,7 @@ class SshTunnel(
     val socksPass: String = randomHex(12)
 
     @Volatile private var session: Session? = null
+    @Volatile private var connectingSession: Session? = null
     @Volatile private var closed = false
     @Volatile private var warned = false
     private var slowDns: SlowDnsClient? = null
@@ -109,6 +110,8 @@ class SshTunnel(
         try { listener?.close() } catch (_: Exception) {}
         try { udpGw?.close() } catch (_: Exception) {}
         udpGw = null
+        try { connectingSession?.disconnect() } catch (_: Exception) {}
+        connectingSession = null
         try { session?.disconnect() } catch (_: Exception) {}
         session = null
         try { slowDns?.stop() } catch (_: Exception) {}
@@ -148,8 +151,18 @@ class SshTunnel(
         // نفق DNS بطيء وتأخّره عالٍ: مهل أطول حتى لا نقطع الجلسة ظلماً.
         s.setServerAliveInterval(if (server.isSlowDns) 30_000 else 15_000)
         s.setServerAliveCountMax(if (server.isSlowDns) 4 else 3)
-        s.connect(if (server.isSlowDns) SLOWDNS_CONNECT_TIMEOUT_MS else CONNECT_TIMEOUT_MS)
-        return s
+        if (closed) throw IOException("Connection cancelled.")
+        connectingSession = s
+        try {
+            s.connect(if (server.isSlowDns) SLOWDNS_CONNECT_TIMEOUT_MS else CONNECT_TIMEOUT_MS)
+            if (closed) {
+                try { s.disconnect() } catch (_: Exception) {}
+                throw IOException("Connection cancelled.")
+            }
+            return s
+        } finally {
+            if (connectingSession === s) connectingSession = null
+        }
     }
 
     /** يراقب الجلسة ويعيد الاتصال بها تلقائياً (المنفذ المحلي وبيانات SOCKS ثابتة فلا يتأثر TUN). */
