@@ -38,11 +38,9 @@ jobs:
             OUTPUT="app/src/main/jniLibs/$ABI/libdnstt.so"
             echo "Building dnstt for $ABI ($GOARCH)"
             if [ -n "$GOARM_VALUE" ]; then
-              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM_VALUE" CGO_ENABLED=0 \\
-                go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
+              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM_VALUE" CGO_ENABLED=0 go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
             else
-              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 \\
-                go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
+              GOBIN="$RUNNER_TEMP/dnstt-bin" GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt/dnstt-client@$VERSION"
             fi
             cp "$RUNNER_TEMP/dnstt-bin/dnstt-client" "$OUTPUT"
             chmod 755 "$OUTPUT"
@@ -55,7 +53,7 @@ jobs:
           build_dnstt x86_64 amd64 ""
 
           echo "Packaged SlowDNS binaries:"
-          find app/src/main/jniLibs -name libdnstt.so -type f -exec ls -lh {} \\;
+          find app/src/main/jniLibs -name libdnstt.so -type f -exec ls -lh {} \;
 
       - name: Download Xray core (libv2ray.aar)
         run: |
