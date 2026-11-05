@@ -54,7 +54,7 @@
 - نمط جديد ضمن **SSH mode** باسم `SSH-SlowDNS`. الحقول: **NS domain** + **Public key** (64 hex) + **DNS resolver** اختياري (الافتراضي `8.8.8.8:53`؛ `https://…` = DoH، `tls://host` = DoT).
 - يشغّل التطبيق عميل **dnstt** الأصلي (Go) كملف تنفيذي `libdnstt.so` ويستمع على `127.0.0.1:<منفذ عشوائي>`؛ ثم يتصل SSH بهذا المنفذ. اسم المستخدم وكلمة السر هما حساب SSH على السيرفر.
 - حقلا Address وPort لا يُستعملان في الاتصال (يُستعمل NS والـ resolver). إن تُرك Address فارغاً يُملأ بنطاق NS.
-- التضمين: `build.yml` يبني `dnstt-client` لكل ABI (arm64-v8a / armeabi-v7a / x86_64) إلى `app/src/main/jniLibs/<abi>/libdnstt.so`. عند البناء المحلي نفّذ الأمر نفسه (`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o app/src/main/jniLibs/arm64-v8a/libdnstt.so ./dnstt-client` من مستودع dnstt) وإلا ستظهر رسالة «SlowDNS core is not included».
+- التضمين: `build.yml` يبني `dnstt-client` لكل ABI (arm64-v8a / armeabi-v7a / x86_64) إلى `app/src/main/jniLibs/<abi>/libdnstt.so`. عند البناء المحلي نفّذ الأمر نفسه (ابنِ الملف التنفيذي من مصدر dnstt بإعدادات GOOS=linux وGOARCH المطابقة لمعمارية الهاتف، ثم ضعه داخل `app/src/main/jniLibs/<abi>/libdnstt.so`) وإلا ستظهر رسالة «SlowDNS core is not included».
 - مع DoH/DoT استعمل عنوان **IP** في الرابط (مثل `https://1.1.1.1/dns-query`)، لأن ملف Go الثابت لا يقرأ إعدادات DNS الخاصة بأندرويد.
 - السرعة محدودة بطبيعة DNS، والاتصال الأول قد يستغرق عدة ثوانٍ (مهلة SSH هنا 90 ثانية).
 
