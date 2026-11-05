@@ -37,7 +37,14 @@ android {
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
     buildFeatures { compose = true }
-    packaging { jniLibs { useLegacyPackaging = true } }
+    packaging {
+        jniLibs {
+            // يستخرج النظام الـ .so إلى nativeLibraryDir (يلزم لتشغيل libdnstt.so كملف تنفيذي)
+            useLegacyPackaging = true
+            // libdnstt.so ملف تنفيذي Go ثابت وليس مكتبة مشتركة: لا نمرّره على strip
+            keepDebugSymbols += "**/libdnstt.so"
+        }
+    }
 }
 
 dependencies {
