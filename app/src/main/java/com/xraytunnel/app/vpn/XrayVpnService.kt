@@ -147,6 +147,7 @@ class XrayVpnService : VpnService() {
         }
         state.value = VpnState.Connecting
         updateNotification()
+            if (icsActive) IcsOpenVpn.suppressIcons(this)
         lastError.value = null
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
@@ -217,6 +218,7 @@ class XrayVpnService : VpnService() {
             XrayCore.start(this, config, p.fd)
             state.value = VpnState.Connected
             updateNotification()
+            if (icsActive) IcsOpenVpn.suppressIcons(this)
             ConnLog.add(ConnLog.Level.OK, "Connected successfully")
             startCreditTicker()
         } catch (e: Throwable) {
@@ -312,12 +314,14 @@ class XrayVpnService : VpnService() {
                         IcsOpenVpn.Status.Connected -> if (state.value != VpnState.Connected) {
                             state.value = VpnState.Connected
                             updateNotification()
+            if (icsActive) IcsOpenVpn.suppressIcons(this)
                             ConnLog.add(ConnLog.Level.OK, "Connected successfully — tunnel is up")
                             startCreditTicker()
                         }
                         IcsOpenVpn.Status.Connecting -> if (state.value == VpnState.Disconnected) {
                             state.value = VpnState.Connecting
                             updateNotification()
+            if (icsActive) IcsOpenVpn.suppressIcons(this)
                         }
                         // Temporary network drop: stay "connected" in UI; OpenVPN reconnects on its own
                         IcsOpenVpn.Status.Waiting ->
@@ -435,7 +439,8 @@ class XrayVpnService : VpnService() {
     }
 
     /** Refresh the foreground notification to match the current VpnState. */
-    private fun updateNotification() {
+    private fun updateNotification()
+            if (icsActive) IcsOpenVpn.suppressIcons(this) {
         try {
             val nm = getSystemService(NotificationManager::class.java)
             nm.notify(1, notification())
