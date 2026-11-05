@@ -127,6 +127,7 @@ fun EditServerDialog(server: Server, onSave: (Server) -> Unit, onClose: () -> Un
 
     AlertDialog(
         onDismissRequest = onClose,
+        containerColor = MaterialTheme.colorScheme.surface,
         title = { Text(stringResource(R.string.edit_server)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
