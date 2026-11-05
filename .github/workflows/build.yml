@@ -1,22 +1,72 @@
-mkdir -p "$RUNNER_TEMP/dnstt-gopath/bin"
+name: Build Android
 
-build_dnstt() {
-  ABI="$1"
-  GOARCH="$2"
-  GOARM_VALUE="$3"
-  OUTPUT="app/src/main/jniLibs/$ABI/libdnstt.so"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
-  echo "Building dnstt for Android $ABI ($GOARCH)"
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-  if [ -n "$GOARM_VALUE" ]; then
-    env -u GOBIN GOPATH="$RUNNER_TEMP/dnstt-gopath" GOOS=android GOARCH="$GOARCH" GOARM="$GOARM_VALUE" CGO_ENABLED=0 \
-      go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt.git/dnstt-client@$VERSION"
-  else
-    env -u GOBIN GOPATH="$RUNNER_TEMP/dnstt-gopath" GOOS=android GOARCH="$GOARCH" CGO_ENABLED=0 \
-      go install -trimpath -ldflags="-s -w" "www.bamsoftware.com/git/dnstt.git/dnstt-client@$VERSION"
-  fi
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  cp "$RUNNER_TEMP/dnstt-gopath/bin/dnstt-client" "$OUTPUT"
-  chmod 755 "$OUTPUT"
-  test -s "$OUTPUT"
-}
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build SlowDNS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="v1.20260501.0"
+          MODULE="www.bamsoftware.com/git/dnstt.git/dnstt-client"
+
+          build_dnstt() {
+            ABI="$1"
+            ARCH="$2"
+            ARM="$3"
+
+            echo "Building dnstt for $ABI"
+
+            OUT="app/src/main/jniLibs/$ABI"
+            mkdir -p "$OUT"
+
+            GOPATH_DIR="$RUNNER_TEMP/gopath-$ABI"
+            mkdir -p "$GOPATH_DIR"
+
+            if [ -n "$ARM" ]; then
+              env GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" GOARM="$ARM" CGO_ENABLED=0 \
+                go build -trimpath -ldflags="-s -w" \
+                -o "$OUT/libdnstt.so" "$MODULE@$VERSION"
+            else
+              env GOPATH="$GOPATH_DIR" GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 \
+                go build -trimpath -ldflags="-s -w" \
+                -o "$OUT/libdnstt.so" "$MODULE@$VERSION"
+            fi
+
+            chmod 755 "$OUT/libdnstt.so"
+            test -s "$OUT/libdnstt.so"
+          }
+
+          build_dnstt arm64-v8a arm64 ""
+          build_dnstt armeabi-v7a arm 7
+          build_dnstt x86_64 amd64 ""
+          build_dnstt x86 386 ""
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-APK
+          path: app/build/outputs/apk/release/*.apk
