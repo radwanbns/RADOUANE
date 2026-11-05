@@ -705,6 +705,13 @@ fun MainScreen(vm: MainViewModel) {
                             containerColor = Color.White
                         ) {
                             DropdownMenuItem(
+                                text = { Text(stringResource(R.string.check_update)) },
+                                onClick = {
+                                    menu = false
+                                    vm.updateAll()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.import_clipboard)) },
                                 onClick = {
                                     menu = false
@@ -847,30 +854,6 @@ fun MainScreen(vm: MainViewModel) {
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f)
                         )
-
-                        IconButton(
-                            onClick = vm::updateAll,
-                            enabled = !updating,
-                            modifier = Modifier
-                                .size(42.dp)
-                                .background(NpvGreen, RoundedCornerShape(14.dp))
-                        ) {
-                            if (updating) {
-                                CircularProgressIndicator(
-                                    Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.Refresh,
-                                    stringResource(R.string.update_servers),
-                                    tint = Color.White
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.width(8.dp))
 
                         Box {
                             Button(
