@@ -61,6 +61,7 @@ class OvpnTunnel(
             "First bytes from server: ${firstDown.get().ifBlank { "none" }}"
     }
     private var listener: ServerSocket? = null
+    @Volatile private var connectingSocket: Socket? = null
     private val pool = Executors.newCachedThreadPool { r ->
         Thread(r, "ovpn-tunnel").apply { isDaemon = true }
     }
@@ -110,15 +111,23 @@ class OvpnTunnel(
         closed.set(true)
         try { listener?.close() } catch (_: Exception) {}
         listener = null
+        // Closing the in-flight socket interrupts DNS/TCP/TLS/payload preflight.
+        try { connectingSocket?.close() } catch (_: Exception) {}
+        connectingSocket = null
         pool.shutdownNow()
     }
 
     /** يختبر أن الاتصال + البايلود ينجحان قبل فتح SOCKS */
     private fun testConnection() {
+        if (closed.get()) throw IOException("Connection cancelled.")
         val sock = createEndpointSocket()
+        connectingSocket = sock
         try {
-            sock.close()
-        } catch (_: Exception) {}
+            if (closed.get()) throw IOException("Connection cancelled.")
+        } finally {
+            connectingSocket = null
+            try { sock.close() } catch (_: Exception) {}
+        }
     }
 
     private fun acceptLoop(ss: ServerSocket, raw: Boolean = false) {
@@ -266,7 +275,9 @@ class OvpnTunnel(
             if (useProxy) "TCP connection to proxy ${server.proxyHost.trim()}:$proxyPort"
             else "TCP connection to server ${server.address}:$targetPort" + if (tlsOn) " (TLS)" else ""
         )
+        if (closed.get()) throw IOException("Connection cancelled.")
         val raw = Socket()
+        connectingSocket = raw
         raw.tcpNoDelay = true
         raw.keepAlive = true
         raw.connect(
@@ -313,6 +324,11 @@ class OvpnTunnel(
             input = pin
         }
         try { sock.soTimeout = 0 } catch (_: Exception) {}
+        if (closed.get()) {
+            try { sock.close() } catch (_: Exception) {}
+            throw IOException("Connection cancelled.")
+        }
+        connectingSocket = null
         return Endpoint(sock, input, output)
     }
 
