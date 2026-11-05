@@ -58,7 +58,8 @@ class XrayVpnService : VpnService() {
     @Volatile private var notifUpText = "—"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var creditTicker: Job? = null
-    // Serialize start/stop/switch so a server switch cannot race an in-progress connection.
+    @Volatile private var stopRequested = false
+    // Serialize lifecycle cleanup; stop requests are signalled immediately, not queued behind a slow connect.
     private val vpnMutex = Mutex()
     private lateinit var connectivityManager: ConnectivityManager
 
@@ -111,6 +112,10 @@ class XrayVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // Signal cancellation immediately: startVpnInternal may be waiting on a slow
+                // SSH/TLS/OpenVPN operation while holding vpnMutex.
+                stopRequested = true
+                stopActiveResourcesImmediately()
                 scope.launch { vpnMutex.withLock { stopVpn() } }
                 return START_NOT_STICKY
             }
@@ -120,9 +125,8 @@ class XrayVpnService : VpnService() {
                     startForeground(1, notification())
                     scope.launch {
                         vpnMutex.withLock {
-                            stopTunnelOnly()
+                            stopVpn()
                             Repo.get(this@XrayVpnService).select(serverId)
-                            startVpnInternal()
                         }
                     }
                 }
@@ -138,6 +142,7 @@ class XrayVpnService : VpnService() {
 
     private fun startVpnInternal() {
         if (state.value != VpnState.Disconnected) return
+        stopRequested = false
         ConnLog.clear()
         if (TimeCredit.remaining(this) <= 0L) {
             setError("Time expired. Watch a rewarded ad to add a full hour.")
@@ -159,6 +164,7 @@ class XrayVpnService : VpnService() {
         if (server == null) { stopVpn(); return }
         ConnLog.add(ConnLog.Level.INFO, "Starting connection: ${server.name} (${server.protocol.uppercase()})")
         try {
+            if (stopRequested) return
             if (server.isRealOvpn) {
                 startRealOvpn(server)
                 return
@@ -189,6 +195,11 @@ class XrayVpnService : VpnService() {
                     )
                     val port = tunnel.start()
                     sshTunnel = tunnel
+                    if (stopRequested) {
+                        tunnel.close()
+                        sshTunnel = null
+                        return
+                    }
                     ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
                 }
                 "ovpn" -> {
@@ -209,10 +220,16 @@ class XrayVpnService : VpnService() {
                     )
                     val port = tunnel.start()
                     ovpnTunnel = tunnel
+                    if (stopRequested) {
+                        tunnel.close()
+                        ovpnTunnel = null
+                        return
+                    }
                     ConfigBuilder.build(server, port, tunnel.socksUser, tunnel.socksPass)
                 }
                 else -> ConfigBuilder.build(server)
             }
+            if (stopRequested) return
             ConnLog.add(ConnLog.Level.INFO, "Creating VPN interface (tun)")
             val p = Builder()
                 .setSession("Xray Tunnel")
@@ -226,8 +243,17 @@ class XrayVpnService : VpnService() {
                 .addDisallowedApplication(packageName) // حتى لا يمر اتصال التطبيق نفسه عبر النفق
                 .establish() ?: error("VPN permission not granted")
             pfd = p
+            if (stopRequested) {
+                try { p.close() } catch (_: Exception) {}
+                pfd = null
+                return
+            }
             ConnLog.add(ConnLog.Level.INFO, "Starting Xray core")
             XrayCore.start(this, config, p.fd)
+            if (stopRequested) {
+                XrayCore.stop()
+                return
+            }
             state.value = VpnState.Connected
             updateNotification()
             ConnLog.add(ConnLog.Level.OK, "Connected successfully")
@@ -448,14 +474,31 @@ class XrayVpnService : VpnService() {
         state.value = VpnState.Disconnected
     }
 
+    private fun stopActiveResourcesImmediately() {
+        creditTicker?.cancel()
+        try { IcsOpenVpn.stop(this) } catch (_: Exception) {}
+        try { XrayCore.stop() } catch (_: Exception) {}
+        try { sshTunnel?.close() } catch (_: Exception) {}
+        try { ovpnTunnel?.close() } catch (_: Exception) {}
+        try { pfd?.close() } catch (_: Exception) {}
+    }
+
     private fun stopVpn() {
+        stopRequested = true
         stopTunnelOnly()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    override fun onRevoke() { stopTunnelOnly(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+    override fun onRevoke() {
+        stopRequested = true
+        stopActiveResourcesImmediately()
+        stopTunnelOnly()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
     override fun onDestroy() {
+        stopRequested = true
         try { connectivityManager.unregisterNetworkCallback(physicalNetworkCallback) } catch (_: Exception) {}
         stopTunnelOnly()
         super.onDestroy()
