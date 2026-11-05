@@ -60,6 +60,7 @@ class XrayVpnService : VpnService() {
     private var creditTicker: Job? = null
     @Volatile private var stopRequested = false
     @Volatile private var disconnecting = false
+    @Volatile private var stopGeneration = 0L
     // Serialize lifecycle cleanup; stop requests are signalled immediately, not queued behind a slow connect.
     private val vpnMutex = Mutex()
     private lateinit var connectivityManager: ConnectivityManager
@@ -117,6 +118,7 @@ class XrayVpnService : VpnService() {
                 // resource has actually been released.
                 disconnecting = true
                 stopRequested = true
+                stopGeneration++
                 stopActiveResourcesImmediately()
                 scope.launch { vpnMutex.withLock { stopVpn() } }
                 return START_NOT_STICKY
@@ -127,12 +129,16 @@ class XrayVpnService : VpnService() {
                     startForeground(1, notification())
                     // Cancel an in-progress handshake immediately, then serialize cleanup
                     // and start the newly selected profile.
+                    val switchStopGeneration = stopGeneration
                     disconnecting = true
                     stopRequested = true
                     stopActiveResourcesImmediately()
                     scope.launch {
                         vpnMutex.withLock {
                             stopTunnelOnly()
+                            // If the user pressed Disconnect during the server switch,
+                            // do not let this queued switch restart the VPN.
+                            if (stopGeneration != switchStopGeneration) return@withLock
                             Repo.get(this@XrayVpnService).select(serverId)
                             state.value = VpnState.Disconnected
                             disconnecting = false
