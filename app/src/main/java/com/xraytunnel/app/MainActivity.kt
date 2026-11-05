@@ -499,10 +499,17 @@ fun MainScreen(vm: MainViewModel) {
     }
 
     fun chooseServer(id: String) {
-        // Save the selected profile, then connect/switch immediately.
+        // Always save the selected profile. Only switch automatically when
+        // a VPN connection is already established; selecting while disconnected
+        // must never start a connection.
+        val wasConnected = state == VpnState.Connected
         vm.select(id)
+        if (!wasConnected) return
+
         val permissionIntent = VpnService.prepare(ctx)
         if (permissionIntent != null) {
+            // An established VPN should already have permission. If Android
+            // revoked it, do not start a new connection from a server selection.
             hostActivity?.suppressAppOpen = true
             vpnPerm.launch(permissionIntent)
         } else {
