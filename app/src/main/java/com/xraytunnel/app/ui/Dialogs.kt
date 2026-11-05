@@ -44,18 +44,13 @@ fun TelegramDialog(onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Defaults.telegramUrl()))) }
-                    onClose()
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = NpvGreen)
-            ) { Text(stringResource(R.string.open_channel)) }
+            Button(onClick = {
+                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Defaults.telegramUrl()))) }
+                onClose()
+            }) { Text(stringResource(R.string.open_channel)) }
         },
         dismissButton = {
-            TextButton(onClick = onClose, colors = ButtonDefaults.textButtonColors(contentColor = NpvGreen)) {
-                Text(stringResource(R.string.later))
-            }
+            TextButton(onClick = onClose) { Text(stringResource(R.string.later)) }
         }
     )
 }
