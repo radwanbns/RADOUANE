@@ -166,21 +166,6 @@ class XrayVpnService : VpnService() {
         notifUpText = "—"
         updateNotification()
         lastError.value = null
-        // Any protocol that has not reached Connected within 45 seconds is
-        // considered stalled. Signal cancellation without waiting for vpnMutex.
-        scope.launch {
-            kotlinx.coroutines.delay(45_000L)
-            if (state.value == VpnState.Connecting && !stopRequested) {
-                stopRequested = true
-                setError("Connection timed out after 45 seconds. The server did not respond.")
-                stopActiveResourcesImmediately()
-                scope.launch {
-                    vpnMutex.withLock {
-                        if (state.value == VpnState.Connecting) stopVpn()
-                    }
-                }
-            }
-        }
         val server = Repo.get(this).selectedServer()
         if (server == null) { stopVpn(); return }
         ConnLog.add(ConnLog.Level.INFO, "Starting connection: ${server.name} (${server.protocol.uppercase()})")
