@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
@@ -71,7 +72,7 @@ class XrayVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
@@ -461,8 +462,12 @@ class XrayVpnService : VpnService() {
     }
 
     private fun notification(): Notification {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "VPN", NotificationManager.IMPORTANCE_LOW))
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "VPN", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1,
             Intent(this, XrayVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
@@ -489,7 +494,7 @@ class XrayVpnService : VpnService() {
     /** Refresh the foreground notification to match the current VpnState. */
     private fun updateNotification() {
         try {
-            val nm = getSystemService(NotificationManager::class.java)
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(1, notification())
             if (icsActive) IcsOpenVpn.suppressIcons(this)
         } catch (_: Exception) {
