@@ -1,4 +1,10 @@
 <resources>
-    <style name="Theme.XrayTunnel" parent="android:Theme.Material.Light.NoActionBar" />
-    <color name="ic_bg">#0F172A</color>
+    <style name="Theme.XrayTunnel" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_window</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <color name="ic_bg">#071426</color>
+    <color name="splash_background">#FFFFFF</color>
 </resources>
