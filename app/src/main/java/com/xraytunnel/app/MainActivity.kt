@@ -1677,7 +1677,8 @@ private fun ServerRow(
 
             Box(
                 Modifier
-                    .size(46.dp)
+                    .width(if (s.protocol.equals("trojan", ignoreCase = true)) 66.dp else 46.dp)
+                    .height(46.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(accent.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
@@ -1686,7 +1687,9 @@ private fun ServerRow(
                     protocolLabel(s.protocol),
                     color = accent,
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
