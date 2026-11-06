@@ -61,6 +61,7 @@ class XrayVpnService : VpnService() {
     @Volatile private var stopRequested = false
     @Volatile private var disconnecting = false
     @Volatile private var stopGeneration = 0L
+    @Volatile private var connectionAttempt = 0L
     // Serialize lifecycle cleanup; stop requests are signalled immediately, not queued behind a slow connect.
     private val vpnMutex = Mutex()
     private lateinit var connectivityManager: ConnectivityManager
@@ -178,6 +179,24 @@ class XrayVpnService : VpnService() {
             return
         }
         state.value = VpnState.Connecting
+        val attempt = ++connectionAttempt
+        val serverForTimeout = Repo.get(this).selectedServer()
+        val connectLimit = if (serverForTimeout?.isSlowDns == true) 120_000L else 60_000L
+        // Close published tunnel resources before waiting for vpnMutex; this interrupts
+        // a blocking SSH/SlowDNS handshake instead of waiting behind it.
+        scope.launch {
+            kotlinx.coroutines.delay(connectLimit)
+            if (connectionAttempt == attempt &&
+                state.value == VpnState.Connecting &&
+                !stopRequested && !disconnecting
+            ) {
+                setError("Connection timed out. The attempt was cancelled automatically.")
+                stopActiveResourcesImmediately()
+                vpnMutex.withLock {
+                    if (connectionAttempt == attempt && state.value == VpnState.Connecting) stopVpn()
+                }
+            }
+        }
         notifStatusLine = "Connecting..."
         notifDownText = "—"
         notifUpText = "—"
@@ -281,6 +300,7 @@ class XrayVpnService : VpnService() {
                 XrayCore.stop()
                 return
             }
+            connectionAttempt++
             state.value = VpnState.Connected
             updateNotification()
             ConnLog.add(ConnLog.Level.OK, "Connected successfully")
@@ -367,6 +387,7 @@ class XrayVpnService : VpnService() {
             notifStatusLine = "Connected"
             return
         }
+        connectionAttempt++
         state.value = VpnState.Connected
         notifStatusLine = "Connected"
         ConnLog.add(ConnLog.Level.OK, "Connected successfully — tunnel is up")
@@ -498,6 +519,7 @@ class XrayVpnService : VpnService() {
 
     /** Stop only the tunnel; keep this foreground service alive for an immediate reconnect. */
     private fun stopTunnelOnly() {
+        connectionAttempt++
         creditTicker?.cancel()
         creditTicker = null
         if (icsActive) {
