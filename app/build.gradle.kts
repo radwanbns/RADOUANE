@@ -24,7 +24,8 @@ android {
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
             // Also generate one APK containing all supported ABIs.
-            isUniversalApk = true
+            // Manual test builds: keep APKs split by CPU architecture to reduce file size.
+            isUniversalApk = false
         }
     }
 
