@@ -48,8 +48,9 @@ object TimeCredit {
                 local
             }
             else -> {
-                val v = maxOf(local, external).coerceAtMost(MAX_CREDIT)
-                if (v != local) writePrefs(context, v)
+                // SharedPreferences is authoritative while installed. Taking max(local, backup)
+                // could resurrect stale credit after a deduction if the external write failed.
+                val v = local.coerceIn(0L, MAX_CREDIT)
                 if (v != external) writeExternal(context, v)
                 v
             }
@@ -87,7 +88,7 @@ object TimeCredit {
         prefs(context).edit()
             .putLong(KEY_REMAINING, value.coerceAtLeast(0L))
             .putBoolean(KEY_SEEDED, true)
-            .apply()
+            .commit()
     }
 
     private fun writeAll(context: Context, value: Long) {
@@ -113,9 +114,8 @@ object TimeCredit {
 
     private fun encrypt(context: Context, value: Long): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val nonce = ByteArray(12)
+        val nonce = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
         val id = key(context)
-        for (i in nonce.indices) nonce[i] = id[i]
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(id, "AES"), GCMParameterSpec(128, nonce))
         val plain = ByteBuffer.allocate(8).putLong(value).array()
         return nonce + cipher.doFinal(plain)
