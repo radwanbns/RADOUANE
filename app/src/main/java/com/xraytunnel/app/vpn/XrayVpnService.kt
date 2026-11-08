@@ -536,15 +536,26 @@ class XrayVpnService : VpnService() {
     }
 
     private fun stopActiveResourcesImmediately() {
+        // Invalidate the current attempt before closing resources. This prevents
+        // late SSH/OpenVPN callbacks from reviving a connection after Stop.
+        connectionAttempt++
         creditTicker?.cancel()
-        // Disable OpenVPN callbacks before stopping the engine so a late CONNECTED
-        // callback cannot overwrite the user's Disconnect request.
+        creditTicker = null
+
+        // Detach references first so cleanup is safe if Stop is requested twice.
         icsActive = false
+        val ssh = sshTunnel
+        sshTunnel = null
+        val ovpn = ovpnTunnel
+        ovpnTunnel = null
+        val forward = pfd
+        pfd = null
+
         try { IcsOpenVpn.stop(this) } catch (_: Exception) {}
         try { XrayCore.stop() } catch (_: Exception) {}
-        try { sshTunnel?.close() } catch (_: Exception) {}
-        try { ovpnTunnel?.close() } catch (_: Exception) {}
-        try { pfd?.close() } catch (_: Exception) {}
+        try { ssh?.close() } catch (_: Exception) {}
+        try { ovpn?.close() } catch (_: Exception) {}
+        try { forward?.close() } catch (_: Exception) {}
     }
 
     private fun stopVpn() {
