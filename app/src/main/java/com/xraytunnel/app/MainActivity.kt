@@ -499,26 +499,35 @@ fun MainScreen(vm: MainViewModel) {
     }
 
     fun chooseServer(id: String) {
-        // Always save the selected profile. Only switch automatically when
-        // a VPN connection is already established; selecting while disconnected
-        // must never start a connection.
-        val wasConnected = state == VpnState.Connected
+        // Selecting any server starts it automatically. If a tunnel is already
+        // connecting/connected, switch it without leaving the old attempt running.
         vm.select(id)
-        if (!wasConnected) return
 
-        val permissionIntent = VpnService.prepare(ctx)
-        if (permissionIntent != null) {
-            // An established VPN should already have permission. If Android
-            // revoked it, do not start a new connection from a server selection.
-            hostActivity?.suppressAppOpen = true
-            vpnPerm.launch(permissionIntent)
-        } else {
+        if (TimeCredit.remaining(ctx) <= 0L) {
+            Toast.makeText(
+                ctx,
+                ctx.getString(R.string.time_expired_toast),
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (state == VpnState.Connected || state == VpnState.Connecting) {
             ContextCompat.startForegroundService(
                 ctx,
                 Intent(ctx, XrayVpnService::class.java)
                     .setAction(XrayVpnService.ACTION_SWITCH_SERVER)
                     .putExtra(XrayVpnService.EXTRA_SERVER_ID, id)
             )
+            return
+        }
+
+        val permissionIntent = VpnService.prepare(ctx)
+        if (permissionIntent != null) {
+            hostActivity?.suppressAppOpen = true
+            vpnPerm.launch(permissionIntent)
+        } else {
+            startVpn()
         }
     }
 
@@ -1240,7 +1249,7 @@ private fun NpvHomePage(
     }
     val statusHint = when (state) {
         VpnState.Connected -> selected?.name ?: "Tunnel active"
-        VpnState.Connecting -> "Preparing the connection..."
+        VpnState.Connecting -> "Tap the power button to stop the connection attempt."
         else -> "Choose a configuration, then tap the power button"
     }
     Column(
@@ -1335,7 +1344,7 @@ private fun NpvHomePage(
                     }
                     if (selected != null) {
                         Text(
-                            selected.protocol.uppercase().take(8),
+                            protocolLabel(selected.protocol),
                             color = NpvGreen,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
@@ -1825,7 +1834,8 @@ private fun formatSpeed(bytesPerSec: Long): String {
     }
 }
 
-private fun protocolLabel(p: String) = when (p) {
+private fun protocolLabel(p: String) = when (p.lowercase()) {
+    "trojan" -> "TROJ"
     "shadowsocks" -> "SS"
     "hysteria2" -> "HY2"
     "ssh" -> "SSH"
